@@ -20,6 +20,8 @@ def parse_args():
                         help="使用多进程多 Agent 模式")
     parser.add_argument("--extensible", "-e", action="store_true",
                         help="使用可扩展架构（能力驱动自主分工）")
+    parser.add_argument("--v4", "-4", action="store_true",
+                        help="使用 sessions_spawn v4 架构（OpenClaw 原生多 Agent）")
     parser.add_argument("--path", "-p", help="项目路径（用于代码分析场景）")
     parser.add_argument("--files", "-f", nargs="+", help="文件路径列表（用于文献综述场景）")
     parser.add_argument("--question", "-q", help="研究问题（用于文献综述场景）")
@@ -128,6 +130,23 @@ def main():
         print(result["final_report"])
         return
 
+    # v4 sessions_spawn 模式（OpenClaw 原生多 Agent）
+    if args.v4:
+        print("""🚀 v4 Sessions-Spawn 模式
+
+此模式需要在 OpenClaw 对话中运行，输出 sessions_spawn 指令供直接执行。
+
+使用方式：
+python agents/sessions_orchestrator.py "你的任务"
+
+将输出的 Python 指令复制到 OpenClaw 对话中执行，即可创建真正的 OpenClaw 子 Agent。
+""")
+        from agents.sessions_orchestrator import main as sessions_main
+        import sys
+        sys.argv = ["sessions_orchestrator.py", args.task or "分析当前项目"]
+        sessions_main()
+        return
+
     # 交互模式
     if args.interactive:
         print("\n" + "="*50)
@@ -164,10 +183,10 @@ def main():
     # 默认：显示帮助
     print(__doc__)
     print("\n使用示例：")
+    print("  python agents/sessions_orchestrator.py '分析项目'      # v4 sessions_spawn（推荐）")
     print("  python main.py -e '分析项目'                        # 可扩展架构（能力驱动）")
     print("  python main.py -m '分析项目'                          # 多进程模式（固定分工）")
     print("  python main.py --demo code-analysis                   # 单进程演示")
-    print("  python main.py -i                                     # 交互模式")
 
 
 if __name__ == "__main__":
