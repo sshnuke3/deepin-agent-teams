@@ -6,17 +6,21 @@
 
 ## 核心架构
 
+### 两种模式
+
+**可扩展架构（能力驱动）- 推荐**
 ```
-用户输入 → Lead Agent（主智能体）
-                    ↓
-        ┌───────────┼───────────┐
-        ↓           ↓           ↓
-  Researcher   Coder      角色N
-  (研究智能体)  (编码智能体)
-        ↓           ↓
-        └───────────┼───────────┘
-                    ↓
-          Lead Agent 整合结果 → 用户输出
+erniebot 分解任务 → Registry 能力匹配 → Worker 自主认领 → 自主执行
+                          ↑
+            Researcher(注册能力) ←→ Coder(注册能力) ←→ General(注册能力)
+```
+
+**多进程架构（固定分工）**
+```
+Orchestrator → spawn Researcher 子进程 → 独立执行
+             → spawn Coder 子进程 → 独立执行
+             ↓
+        erniebot 整合结果
 ```
 
 ## 快速开始

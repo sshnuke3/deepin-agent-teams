@@ -17,7 +17,9 @@ def parse_args():
     parser.add_argument("--demo", "-d", choices=["code-analysis", "literature", "all"],
                         help="运行预设演示场景")
     parser.add_argument("--multi", "-m", action="store_true",
-                        help="使用真正多进程多 Agent 模式（推荐）")
+                        help="使用多进程多 Agent 模式")
+    parser.add_argument("--extensible", "-e", action="store_true",
+                        help="使用可扩展架构（能力驱动自主分工）")
     parser.add_argument("--path", "-p", help="项目路径（用于代码分析场景）")
     parser.add_argument("--files", "-f", nargs="+", help="文件路径列表（用于文献综述场景）")
     parser.add_argument("--question", "-q", help="研究问题（用于文献综述场景）")
@@ -99,8 +101,23 @@ def main():
     # 多进程多 Agent 模式（真正并行）
     if args.multi:
         from agents.orchestrator import Orchestrator
-        print("🚀 启动真正多进程多 Agent 模式...")
+        print("🚀 启动多进程多 Agent 模式...")
         orch = Orchestrator(verbose=True)
+        result = orch.run(
+            args.task or "分析当前项目",
+            project_path=args.path or os.path.dirname(os.path.abspath(__file__))
+        )
+        print("\n" + "="*60)
+        print("最终报告：")
+        print("="*60)
+        print(result["final_report"])
+        return
+
+    # 可扩展多 Agent 模式（能力驱动自主分工）
+    if args.extensible:
+        from agents.orchestrator_extensible import ExtensibleOrchestrator
+        print("🚀 启动可扩展多 Agent 模式（能力驱动）...")
+        orch = ExtensibleOrchestrator(verbose=True)
         result = orch.run(
             args.task or "分析当前项目",
             project_path=args.path or os.path.dirname(os.path.abspath(__file__))
@@ -147,10 +164,10 @@ def main():
     # 默认：显示帮助
     print(__doc__)
     print("\n使用示例：")
-    print("  python main.py --demo code-analysis                    # 代码分析演示（单进程）")
-    print("  python main.py -m '分析项目'                          # 多进程多 Agent（推荐）")
-    print("  python main.py -m '分析项目' -p /path/to/project       # 多 Agent + 指定路径")
-    print("  python main.py -i                                    # 交互模式")
+    print("  python main.py -e '分析项目'                        # 可扩展架构（能力驱动）")
+    print("  python main.py -m '分析项目'                          # 多进程模式（固定分工）")
+    print("  python main.py --demo code-analysis                   # 单进程演示")
+    print("  python main.py -i                                     # 交互模式")
 
 
 if __name__ == "__main__":
