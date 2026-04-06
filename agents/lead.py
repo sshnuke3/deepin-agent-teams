@@ -123,3 +123,26 @@ class LeadAgent(BaseAgent):
 （如何运行/使用）
 """
         return self.chat(prompt)
+
+    def integrate_literature(self, question: str, summaries: dict) -> str:
+        """整合多篇文献，生成综述报告"""
+        summary_text = '\n'.join([
+            f"## {title}\n{summary}"
+            for title, summary in summaries.items()
+        ])
+        
+        prompt = f"""研究问题：{question}
+
+文献综述：
+
+{summary_text}
+
+请生成结构化的文献综述报告，包含：
+1. 研究背景
+2. 各文献的核心发现（对比表）
+3. 文献间的观点异同
+4. 综合结论
+5. 研究空白和建议
+
+格式：Markdown"""
+        return self.chat(prompt)
