@@ -4,101 +4,135 @@ deepin-agent-teams - 多智能体协作系统
 主入口
 """
 import argparse
+import os
 from agents import LeadAgent, ResearcherAgent, CoderAgent
-from config import ERNIEBOT_API_KEY, ERNIEBOT_SECRET_KEY
+from scenarios import CodeAnalysisScenario, LiteratureReviewScenario
+from config import ERNIEBOT_API_KEY
 
 
 def parse_args():
     parser = argparse.ArgumentParser(description="deepin Agent Teams - 多智能体协作系统")
     parser.add_argument("task", nargs="?", help="要执行的任务描述")
     parser.add_argument("--interactive", "-i", action="store_true", help="交互模式")
-    parser.add_argument("--agent", choices=["lead", "researcher", "coder"], 
-                        help="单独运行某个 Agent")
-    parser.add_argument("--demo", choices=["code-analysis", "literature"],
+    parser.add_argument("--demo", "-d", choices=["code-analysis", "literature", "all"],
                         help="运行预设演示场景")
+    parser.add_argument("--path", "-p", help="项目路径（用于代码分析场景）")
+    parser.add_argument("--files", "-f", nargs="+", help="文件路径列表（用于文献综述场景）")
+    parser.add_argument("--question", "-q", help="研究问题（用于文献综述场景）")
+    parser.add_argument("--verbose", "-v", action="store_true", help="详细输出模式")
     return parser.parse_args()
 
 
-def interactive_mode(lead: LeadAgent):
-    """交互式对话"""
-    print("=" * 50)
-    print("deepin-agent-teams 交互模式")
-    print("输入你的需求，Ctrl+C 退出")
-    print("=" * 50)
-    
-    while True:
-        try:
-            user_input = input("\n[你] ")
-            if user_input.strip().lower() in ("exit", "quit", "退出"):
-                break
-            response = lead.handle(user_input)
-            print(f"\n[Lead] {response}")
-        except KeyboardInterrupt:
-            print("\n\n退出。")
-            break
+def init_agents(verbose: bool = True):
+    """初始化 Agent 系统"""
+    researcher = ResearcherAgent(verbose=verbose)
+    coder = CoderAgent(verbose=verbose)
+    lead = LeadAgent(researcher, coder, verbose=verbose)
+    return lead, researcher, coder
 
 
-def demo_code_analysis(lead: LeadAgent):
-    """演示场景一：项目代码分析 + 文档生成"""
-    task = "分析当前项目目录 /root/.openclaw/workspace/deepin-agent-teams 的代码结构，并生成项目文档"
-    print(f"[DEMO] 运行代码分析场景...\n")
-    result = lead.handle(task)
-    print("\n" + "=" * 50)
-    print("最终输出：")
-    print("=" * 50)
-    print(result)
+def run_demo_all(lead: LeadAgent, researcher: ResearcherAgent, coder: CoderAgent):
+    """运行所有演示场景"""
+    print("\n" + "="*60)
+    print("🧪 deepin-agent-teams 演示模式")
+    print("="*60)
+
+    # 场景一：代码分析
+    print("\n\n" + "🔷"*25)
+    scenario1 = CodeAnalysisScenario(researcher, coder, lead)
+    project_path = os.path.dirname(os.path.abspath(__file__))  # 分析自己
+    result1 = scenario1.run(project_path)
+    print("\n📄 生成的文档预览：")
+    print("-"*40)
+    print(result1[:1500] + "..." if len(result1) > 1500 else result1)
+
+    # 场景二：文献综述
+    print("\n\n" + "🔷"*25)
+    print("📚 场景二演示（需要提供 PDF/文本文件）")
+    print("   使用方式: python main.py --demo literature --files <file1> <file2> --question <问题>")
+    print("-"*40)
+
+    print("\n\n" + "="*60)
+    print("✅ 所有演示场景完成")
+    print("="*60)
 
 
 def main():
     args = parse_args()
-    
+    verbose = args.verbose
+
     # 检查 API 凭证
     if not ERNIEBOT_API_KEY:
-        print("⚠️  警告: 未设置 ERNIEBOT_API_KEY，部分功能可能受限")
-        print("   设置方式: export ERNIEBOT_API_KEY=your_key")
-    
+        print("⚠️  警告: 未设置 ERNIEBOT_API_KEY")
+        print("   设置方式: cp .env.example .env && 编辑 .env 填入 API 凭证\n")
+
     # 初始化 Agent
     print("🚀 初始化 Agent 系统...")
-    researcher = ResearcherAgent(verbose=False)
-    coder = CoderAgent(verbose=False)
-    lead = LeadAgent(researcher, coder, verbose=True)
-    
+    lead, researcher, coder = init_agents(verbose)
+
+    # 演示模式
     if args.demo:
         if args.demo == "code-analysis":
-            demo_code_analysis(lead)
+            scenario = CodeAnalysisScenario(researcher, coder, lead)
+            path = args.path or os.path.dirname(os.path.abspath(__file__))
+            result = scenario.run(path)
+            print("\n📄 生成的文档：")
+            print("-"*40)
+            print(result)
+
+        elif args.demo == "literature":
+            if not args.files or not args.question:
+                print("❌ 文献综述场景需要: --files <文件列表> --question <研究问题>")
+                return
+            scenario = LiteratureReviewScenario(researcher, coder, lead)
+            result = scenario.run(args.files, args.question)
+            print("\n📄 生成的综述：")
+            print("-"*40)
+            print(result)
+
+        elif args.demo == "all":
+            run_demo_all(lead, researcher, coder)
         return
-    
-    if args.agent:
-        # 单独运行某个 Agent
-        agent_map = {"lead": lead, "researcher": researcher, "coder": coder}
-        agent = agent_map[args.agent]
-        print(f"运行 {args.agent} Agent（输入 exit 退出）...")
+
+    # 交互模式
+    if args.interactive:
+        print("\n" + "="*50)
+        print("deepin-agent-teams 交互模式")
+        print("输入你的需求，Ctrl+C 退出")
+        print("="*50)
+        print("可用命令：")
+        print("  分析代码  /path/to/project  - 分析项目代码")
+        print("  文献综述  <问题> [文件列表] - 生成文献综述")
+        print("  exit/quit - 退出\n")
+
         while True:
             try:
-                user_input = input(f"[{args.agent}] ")
-                if user_input.strip().lower() in ("exit", "quit"):
+                user_input = input("\n[你] ")
+                if user_input.strip().lower() in ("exit", "quit", "退出"):
                     break
-                print(agent.chat(user_input))
+                response = lead.handle(user_input)
+                print(f"\n[Lead] {response}\n")
             except KeyboardInterrupt:
+                print("\n\n退出。")
                 break
         return
-    
+
+    # 单任务模式
     if args.task:
-        # 执行指定任务
-        print(f"[Task] {args.task}\n")
+        print(f"[任务] {args.task}\n")
         result = lead.handle(args.task)
-        print("\n" + "=" * 50)
+        print("\n" + "="*50)
         print("最终输出：")
-        print("=" * 50)
+        print("="*50)
         print(result)
         return
-    
-    if args.interactive:
-        interactive_mode(lead)
-        return
-    
-    # 默认：交互模式
-    interactive_mode(lead)
+
+    # 默认：显示帮助
+    print(__doc__)
+    print("\n使用示例：")
+    print("  python main.py --demo code-analysis                    # 代码分析演示")
+    print("  python main.py -i                                    # 交互模式")
+    print("  python main.py '帮我分析这个项目'                      # 单次任务")
 
 
 if __name__ == "__main__":

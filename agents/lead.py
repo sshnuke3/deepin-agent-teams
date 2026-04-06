@@ -87,3 +87,39 @@ class LeadAgent(BaseAgent):
         for agent, result in results.items():
             formatted.append(f"=== {agent.upper()} ===\n{result}")
         return "\n\n".join(formatted)
+
+    def integrate_analysis(self, project_path: str, structure: str, code_analysis: str) -> str:
+        """整合代码分析结果，生成最终文档"""
+        prompt = f"""请为以下项目生成完整的 Markdown 格式项目文档。
+
+项目路径：{project_path}
+
+## 项目结构分析
+{structure}
+
+## 核心代码分析
+{code_analysis}
+
+请生成以下格式的文档：
+
+# 项目名称
+
+## 项目概述
+（基于结构分析推断项目类型和功能）
+
+## 目录结构
+（用树形结构展示）
+
+## 核心模块说明
+（对主要文件/模块的功能说明）
+
+## 关键代码解读
+（对重要函数/类的说明）
+
+## 依赖关系
+（模块间的依赖）
+
+## 快速开始
+（如何运行/使用）
+"""
+        return self.chat(prompt)
