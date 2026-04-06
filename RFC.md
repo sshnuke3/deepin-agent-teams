@@ -1,84 +1,74 @@
-## 架构演进（重大重构）
+## 架构演进
 
-### 重构前（假多 Agent）
-- 三个"Agent"只是三个 Python class
+### v1（假多 Agent）- 废弃
+- 三个 Python class，共享 erniebot 调用
 - 本质：串行 LLM 调用链
-- 问题：无独立上下文、无真正并行、无工具隔离
 
-### 重构后（真多 Agent）
-- Orchestrator 调度器：erniebot 推理 + 进程管理
-- Researcher/Coder：独立子进程（PID 隔离）
-- 进程间通信：文件系统传递任务/结果
-- 真正并行：threading 并发分发 + 子进程同时执行
+### v2（多进程）- 固定分工
+- Orchestrator spawn 独立子进程
+- 固定：researcher 读文件 / coder 分析代码
+- 问题：分工硬编码，扩展需改代码
+
+### v3（可扩展架构）- 当前版本
+- **AgentRegistry**: 能力注册中心 + 任务队列
+  - fcntl.flock 并发安全
+  - 任务 submit → claim → complete 流程
+- **worker_v2.py**: 可扩展 Worker
+  - 启动时注册 capabilities
+  - 从 Registry 自主认领任务
+  - 13 种能力：file_reader/dir_scanner/code_analyzer/ast_parser/syntax_checker/dependency_analyzer/shell_executor/git_analyzer/web_search/web_fetcher/markdown_writer 等
+- **orchestrator_extensible.py**: 能力驱动编排
+  - erniebot 分解为 capabilities（不指定谁执行）
+  - Worker 自主认领（基于能力匹配）
+  - 真正自主分工
 
 ### 技术架构图
 
 ```
-Orchestrator (Lead Agent)
-├── erniebot.lite → 任务拆解 + 结果整合
-├── subprocess Researcher (PID 隔离)
-│   └── 独立工具集：文件读取、Shell 执行
-└── subprocess Coder (PID 隔离)
-    └── 独立工具集：AST 分析、语法检查、文档生成
+┌─────────────────────────────────────────────┐
+│         ExtensibleOrchestrator               │
+│  erniebot 分解 → submit_task(Registry)      │
+└─────────────────────────────────────────────┘
+                      ↓
+┌─────────────────────────────────────────────┐
+│              AgentRegistry                   │
+│  Worker 注册 (capabilities)                 │
+│  任务队列 (submit / claim / complete)      │
+│  文件锁 (fcntl.flock)                      │
+└─────────────────────────────────────────────┘
+         ↑                    ↑              ↑
+    researcher           coder          general
+    [file_reader,     [code_analyzer, [dir_scanner,
+     dir_scanner,      ast_parser,     code_analyzer,
+     web_search]      shell_exec]     shell_exec]
 
-进程通信：
-Orchestrator → Worker: /tmp/agent_task_{role}.json
-Worker → Orchestrator: /tmp/agent_result_{role}.json
+Worker 自主认领任务，自主选择能力执行
 ```
 
 ## 七、提交物清单
 
-- [x] RFC.md（本文档）
-- [x] README.md（环境安装、一键运行说明）
-- [x] agents/orchestrator.py - 多 Agent 调度器（erniebot 推理 + 进程管理）
-- [x] agents/worker_researcher.py - Researcher 子进程（独立工具集）
-- [x] agents/worker_coder.py - Coder 子进程（独立工具集）
-- [x] config.py - 统一配置管理
-- [x] main.py - 命令行入口（支持 --multi 多进程模式）
-- [x] scenarios/code_analysis.py - 场景一（✅已演示）
-- [x] scenarios/literature_review.py - 场景二（✅已演示）
-- [ ] README 截图/录屏
+- [x] agents/orchestrator.py - 多进程调度器（v2 固定分工）
+- [x] agents/orchestrator_extensible.py - 可扩展编排器（v3 能力驱动）
+- [x] agents/registry.py - Agent 注册中心 + 任务队列
+- [x] agents/worker_v2.py - 可扩展 Worker（Registry 模式）
+- [x] agents/worker_researcher.py - Researcher 子进程（兼容 v2）
+- [x] agents/worker_coder.py - Coder 子进程（兼容 v2）
+- [x] README.md
 
 ## 实施进度
 
-| 阶段 | 时间 | 状态 | 说明 |
-|------|------|------|------|
-| 第一周 | 4/1-4/7 | ✅ | Agent 框架搭建 |
-| 第二周 | 4/8-4/14 | ✅ | 两大场景框架 |
-| 第三周 | 4/15-4/21 | ✅ | 场景一 + 端到端演示 |
-| 第四周 | 4/22-4/28 | ✅ | 架构重构：真多进程 Agent |
-| 第五周 | 4/29-5/5 | ⏳ | 演示材料 + 提交 |
+| 阶段 | 状态 | 说明 |
+|------|------|------|
+| 第1-2周 | ✅ | Agent 框架 + 场景演示 |
+| 第3-4周 | ✅ | 架构重构：多进程 → 可扩展 |
+| 第5周 | 🔄 进行中 | 演示材料整理 |
 
 ## 演示验证
 
-### 多进程多 Agent 演示（--multi 模式）
-- Orchestrator spawn 2 独立子进程（PID 1927455 + 1927456）
-- erniebot 推理任务拆解（parallel=true）
-- 并行分发任务给 Researcher + Coder
-- 子进程独立执行（文件分析、AST 分析）
-- 结果文件收集 + erniebot 整合
-- 子进程优雅退出
+### v3 可扩展架构演示
+- 3 Worker 并行注册到 Registry
+- erniebot 分解为 capabilities（不指定执行者）
+- general Worker 自主认领 shell_executor 任务
+- Worker 自主执行，Registry 协调结果
 - 状态：✅ 通过
-
-## 代码结构（最新）
-
-```
-deepin-agent-teams/
-├── config.py              # 统一配置
-├── main.py                # 入口（-m 多进程模式）
-├── requirements.txt
-├── .env.example
-├── .gitignore
-├── agents/
-│   ├── orchestrator.py     # 多 Agent 调度器（核心）
-│   ├── worker_researcher.py # Researcher 子进程
-│   ├── worker_coder.py     # Coder 子进程
-│   ├── base.py            # 旧版 BaseAgent（兼容）
-│   ├── lead.py            # 旧版 LeadAgent（兼容）
-│   ├── researcher.py      # 旧版 ResearcherAgent（兼容）
-│   └── coder.py          # 旧版 CoderAgent（兼容）
-└── scenarios/
-    ├── code_analysis.py
-    └── literature_review.py
-```
 
