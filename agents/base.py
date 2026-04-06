@@ -3,7 +3,7 @@ agents/base.py - Agent 基础类
 """
 import erniebot
 from typing import Optional, List, Dict, Any
-from config import ERNIEBOT_API_KEY, ERNIEBOT_SECRET_KEY, AGENTS_CONFIG
+from config import ERNIEBOT_ACCESS_TOKEN, DEFAULT_ACCESS_TOKEN, AGENTS_CONFIG
 
 
 class BaseAgent:
@@ -16,17 +16,18 @@ class BaseAgent:
         self.messages: List[Dict[str, str]] = []
         
         # 设置 erniebot 凭证
-        if ERNIEBOT_API_KEY and ERNIEBOT_SECRET_KEY:
+        token = ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN
+        if token:
             erniebot.api_type = "aistudio"
-            erniebot.aistudio_access_token = ERNIEBOT_API_KEY
+            erniebot.access_token = token
         
         # 系统提示词
         self._setup_system_prompt()
 
     def _setup_system_prompt(self):
-        """设置系统提示词"""
+        """设置系统提示词（使用 user role，erniebot aistudio 不支持 system）"""
         self.messages.append({
-            "role": "system",
+            "role": "user",
             "content": self.config["system_prompt"]
         })
 

@@ -7,7 +7,7 @@ import argparse
 import os
 from agents import LeadAgent, ResearcherAgent, CoderAgent
 from scenarios import CodeAnalysisScenario, LiteratureReviewScenario
-from config import ERNIEBOT_API_KEY
+from config import ERNIEBOT_ACCESS_TOKEN, DEFAULT_ACCESS_TOKEN
 
 
 def parse_args():
@@ -62,9 +62,9 @@ def main():
     verbose = args.verbose
 
     # 检查 API 凭证
-    if not ERNIEBOT_API_KEY:
-        print("⚠️  警告: 未设置 ERNIEBOT_API_KEY")
-        print("   设置方式: cp .env.example .env && 编辑 .env 填入 API 凭证\n")
+    if not (ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN):
+        print("⚠️  警告: 未设置 ERNIEBOT_ACCESS_TOKEN")
+        print("   设置方式: cp .env.example .env && 编辑 .env 填入 token\n")
 
     # 初始化 Agent
     print("🚀 初始化 Agent 系统...")

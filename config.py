@@ -6,14 +6,15 @@ from dotenv import load_dotenv
 
 load_dotenv()
 
-# 文心大模型 API 配置
-ERNIEBOT_API_KEY = os.getenv("ERNIEBOT_API_KEY", "")
-ERNIEBOT_SECRET_KEY = os.getenv("ERNIEBOT_SECRET_KEY", "")
+# 文心大模型 API 配置（AI Studio token）
+ERNIEBOT_ACCESS_TOKEN = os.getenv("ERNIEBOT_ACCESS_TOKEN", "")
+# 默认 token（来自 MEMORY.md）
+DEFAULT_ACCESS_TOKEN = "0b93205ac0fc59d69166edb8e24cf1bc48aed453"
 
 # Agent 配置
 AGENTS_CONFIG = {
     "lead": {
-        "model": "ernie-4.0-8K-latest",
+        "model": "ernie-lite",
         "temperature": 0.7,
         "system_prompt": """你是一个多智能体系统的 Lead Agent（主智能体）。
 你的职责：
@@ -29,7 +30,7 @@ AGENTS_CONFIG = {
 - 保持上下文连贯""",
     },
     "researcher": {
-        "model": "ernie-4.0-8K-latest", 
+        "model": "ernie-lite", 
         "temperature": 0.5,
         "system_prompt": """你是一个 Researcher Agent（研究智能体）。
 你的职责：
@@ -43,7 +44,7 @@ AGENTS_CONFIG = {
 - 如需调用工具，使用 available_tools""",
     },
     "coder": {
-        "model": "ernie-4.0-8K-latest",
+        "model": "ernie-lite",
         "temperature": 0.3,
         "system_prompt": """你是一个 Coder Agent（编码智能体）。
 你的职责：
