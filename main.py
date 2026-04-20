@@ -16,6 +16,10 @@ def parse_args():
     parser.add_argument("--interactive", "-i", action="store_true", help="交互模式")
     parser.add_argument("--demo", "-d", choices=["code-analysis", "literature", "all"],
                         help="运行预设演示场景")
+    parser.add_argument("--demo-readme", action="store_true",
+                        help="场景：自动生成 README（sessions_spawn 并行）")
+    parser.add_argument("--demo-test", action="store_true",
+                        help="场景：自动生成测试用例（sessions_spawn 多 Agent 并行）")
     parser.add_argument("--multi", "-m", action="store_true",
                         help="使用多进程多 Agent 模式")
     parser.add_argument("--extensible", "-e", action="store_true",
@@ -100,6 +104,22 @@ def main():
 
         elif args.demo == "all":
             run_demo_all(lead, researcher, coder)
+        return
+
+    # 新场景：自动生成 README
+    if args.demo_readme:
+        from scenarios.readme_generator import main as readme_main
+        import sys
+        sys.argv = ["readme_generator.py", args.path or "."]
+        readme_main()
+        return
+
+    # 新场景：自动生成测试用例
+    if args.demo_test:
+        from scenarios.test_generator import main as test_main
+        import sys
+        sys.argv = ["test_generator.py", args.path or "."]
+        test_main()
         return
 
     # 多进程多 Agent 模式（真正并行）
