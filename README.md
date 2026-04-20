@@ -4,7 +4,7 @@
 
 > 在 deepin 25 操作系统上，基于 OpenClaw 多智能体框架和文心大模型 API，实现复杂任务的自动化拆解与协同执行。
 
-## 核心架构（v4 - 推荐）
+## 核心架构（v4.1 - 推荐）
 
 **Sessions-Spawn 架构（OpenClaw 原生多 Agent）**
 
@@ -23,11 +23,14 @@
     整合最终结果
 ```
 
+**v4.1 生产级增强**：在 v4 基础上增加超时控制、重试机制、错误隔离、彩色分级日志、完整状态跟踪、优雅降级。
+
 **架构对比：**
 
 | 版本 | 实现方式 | 工具能力 | 推荐场景 |
 |------|---------|---------|---------|
-| **v4（推荐）** | `sessions_spawn` 创建 OpenClaw 子Agent | OpenClaw 原生工具 | 生产级多 Agent 协作 |
+| **v4.1（推荐）** | `sessions_spawn` + 生产级增强 | OpenClaw 原生工具 | 生产级多 Agent 协作 |
+| v4 | `sessions_spawn` 基础版 | OpenClaw 原生工具 | 快速演示 |
 | v3 | Registry + Python Worker | Python 函数 | 能力驱动扩展 |
 | v2 | Python subprocess | Python 函数 | 固定分工演示 |
 
@@ -57,7 +60,25 @@ cp .env.example .env
 
 ### 运行
 
-#### v4 模式（推荐）- Sessions-Spawn
+#### v4.1 模式（推荐）- Sessions-Spawn 生产级
+
+```bash
+# 分解任务，输出 sessions_spawn 指令（推荐方式）
+python agents/sessions_orchestrator_prod.py "分析项目代码结构并生成文档"
+
+# 通过 main.py 调用
+python main.py --v41 "分析项目"
+
+# 将输出的 Python 指令复制到 OpenClaw 对话中执行
+
+# 可选参数：
+#   --timeout 120      单 Agent 超时秒数（默认 120）
+#   --global-timeout 300 全局超时秒数（默认 300）
+#   --retry 2          最大重试次数（默认 2）
+#   --quiet            静默模式
+```
+
+#### v4 模式 - Sessions-Spawn 基础版
 
 ```bash
 # 分解任务，输出 sessions_spawn 指令
@@ -131,7 +152,8 @@ deepin-agent-teams/
 │   ├── registry.py                 # Agent 注册中心（v3）
 │   ├── orchestrator.py             # 多进程 Orchestrator（v2）
 │   ├── orchestrator_extensible.py # 可扩展 Orchestrator（v3）
-│   ├── sessions_orchestrator.py     # Sessions-Spawn 编排器（v4）⭐
+│   ├── sessions_orchestrator.py     # Sessions-Spawn 编排器（v4）
+│   ├── sessions_orchestrator_prod.py # Sessions-Spawn 生产级编排器（v4.1）⭐
 │   ├── worker_v2.py               # 可扩展 Worker（v3）
 │   ├── worker_researcher.py       # Researcher 子进程（v2）
 │   └── worker_coder.py           # Coder 子进程（v2）

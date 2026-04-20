@@ -22,6 +22,8 @@ def parse_args():
                         help="使用可扩展架构（能力驱动自主分工）")
     parser.add_argument("--v4", "-4", action="store_true",
                         help="使用 sessions_spawn v4 架构（OpenClaw 原生多 Agent）")
+    parser.add_argument("--v41", "-41", action="store_true",
+                        help="使用 v4.1 生产级架构（超时+重试+日志+降级）")
     parser.add_argument("--path", "-p", help="项目路径（用于代码分析场景）")
     parser.add_argument("--files", "-f", nargs="+", help="文件路径列表（用于文献综述场景）")
     parser.add_argument("--question", "-q", help="研究问题（用于文献综述场景）")
@@ -145,6 +147,29 @@ python agents/sessions_orchestrator.py "你的任务"
         import sys
         sys.argv = ["sessions_orchestrator.py", args.task or "分析当前项目"]
         sessions_main()
+        return
+
+    # v4.1 生产级模式（超时+重试+日志+降级）
+    if args.v41:
+        print("""🚀 v4.1 生产级 Sessions-Spawn 模式
+
+在 v4 基础上增加：
+- 超时控制：单 Agent 超时 + 全局超时守护线程
+- 重试机制：网络错误自动重试，指数退避
+- 错误处理：子 Agent 失败不影响其他，优雅降级
+- 结构化日志：彩色多级别日志 + 日志文件
+- 状态跟踪：PENDING/RUNNING/DONE/FAILED/TIMEOUT
+- 降级策略：任务分解失败时降级为单一 general 任务
+
+使用方式（与 v4 相同）：
+python agents/sessions_orchestrator_prod.py "你的任务"
+
+将输出的 Python 指令复制到 OpenClaw 对话中执行。
+""")
+        from agents.sessions_orchestrator_prod import main as sessions_prod_main
+        import sys
+        sys.argv = ["sessions_orchestrator_prod.py", args.task or "分析当前项目"]
+        sessions_prod_main()
         return
 
     # 交互模式
