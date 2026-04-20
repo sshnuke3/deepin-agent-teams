@@ -19,6 +19,30 @@ def get_instructions(project_path: str, project_name: str = "") -> str:
     """生成 sessions_spawn + sessions_send 指令序列"""
     pname = project_name or os.path.basename(project_path.rstrip("/"))
 
+    # 两个 Agent 的 task 内容（避免在 f-string 里拼接复杂内容）
+    structure_task = (
+        "你是一个项目结构分析 Agent。\n\n"
+        "你的职责：\n"
+        "1. 递归扫描项目目录 {}，列出所有文件（忽略 __pycache__、.git、node_modules 等）\n"
+        "2. 识别项目类型（Python/JS/Go/C++ 等）\n"
+        "3. 列出目录树结构（深度 3 层）\n"
+        "4. 识别关键文件：入口文件、配置文件、依赖文件\n"
+        "5. 分析完毕后以「[任务完成]」结尾\n\n"
+        "使用 exec 工具执行 find/ls 等命令收集信息。"
+    ).format(project_path)
+
+    core_task = (
+        "你是一个核心代码分析 Agent。\n\n"
+        "你的职责：\n"
+        "1. 进入项目 {}\n"
+        "2. 找到核心代码文件（主入口、最重要的模块）\n"
+        "3. 使用 read 工具读取这些文件的内容\n"
+        "4. 分析每个文件的作用、关键函数/类、依赖关系\n"
+        "5. 总结项目的主要功能和技术栈\n"
+        "6. 分析完毕后以「[任务完成]」结尾\n\n"
+        "使用 read 工具读取代码文件，使用 exec 执行 find/grep 等命令定位文件。"
+    ).format(project_path)
+
     lines = []
     lines.append("# README 自动生成场景 - sessions_spawn 并行执行\n")
     lines.append(f"**项目**：`{pname}`\n")
@@ -29,7 +53,7 @@ def get_instructions(project_path: str, project_name: str = "") -> str:
     lines.append("## Step 1: 同时创建两个子 Agent\n")
     lines.append("```python\n")
     lines.append("sessions_spawn(\n")
-    lines.append("    task='''你是一个项目结构分析 Agent。\n\n你的职责：\n1. 递归扫描项目目录 " + project_path + "，列出所有文件（忽略 __pycache__、.git、node_modules 等）\n2. 识别项目类型（Python/JS/Go/C++ 等）\n3. 列出目录树结构（深度 3 层）\n4. 识别关键文件：入口文件、配置文件、依赖文件\n5. 分析完毕后以「[任务完成]」结尾\n\n使用 exec 工具执行 find/ls 等命令收集信息。'''")
+    lines.append(f"    task='''{structure_task}'''\n")
     lines.append("    ,\n")
     lines.append("    label='structure-agent',\n")
     lines.append("    mode='run',\n")
@@ -39,7 +63,7 @@ def get_instructions(project_path: str, project_name: str = "") -> str:
 
     lines.append("```python\n")
     lines.append("sessions_spawn(\n")
-    lines.append("    task='''你是一个核心代码分析 Agent。\n\n你的职责：\n1. 进入项目 " + project_path + "\n2. 找到核心代码文件（主入口、最重要的模块）\n3. 使用 read 工具读取这些文件的内容\n4. 分析每个文件的作用、关键函数/类、依赖关系\n5. 总结项目的主要功能和技术栈\n6. 分析完毕后以「[任务完成]」结尾\n\n使用 read 工具读取代码文件，使用 exec 执行 find/grep 等命令定位文件。'''")
+    lines.append(f"    task='''{core_task}'''\n")
     lines.append("    ,\n")
     lines.append("    label='core-agent',\n")
     lines.append("    mode='run',\n")
@@ -77,7 +101,7 @@ def get_instructions(project_path: str, project_name: str = "") -> str:
     lines.append("import erniebot\n")
     lines.append("erniebot.api_type = 'aistudio'\n")
     lines.append("erniebot.access_token = '0b93205ac0fc59d69166edb8e24cf1bc48aed453'\n\n")
-    lines.append("prompt = \"\"\"项目：" + pname + "\n\n")
+    lines.append(f'prompt = """项目：{pname}\n\n')
     lines.append("结构分析结果：\n<structure-agent 的输出>\n\n")
     lines.append("核心代码分析结果：\n<core-agent 的输出>\n\n")
     lines.append("请生成一份完整的 README.md，包含：\n")
@@ -87,7 +111,7 @@ def get_instructions(project_path: str, project_name: str = "") -> str:
     lines.append("4. 技术栈\n")
     lines.append("5. 快速开始（安装+运行）\n")
     lines.append("6. 使用示例\n\n")
-    lines.append("只输出 Markdown，不要其他内容。\"\"\"\n\n")
+    lines.append('只输出 Markdown，不要其他内容。"""\n\n')
     lines.append("response = erniebot.ChatCompletion.create(\n")
     lines.append("    model='ernie-lite',\n")
     lines.append("    messages=[{'role': 'user', 'content': prompt}],\n")
