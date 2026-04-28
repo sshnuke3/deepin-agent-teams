@@ -93,6 +93,18 @@ python agents/sessions_orchestrator.py "分析项目代码结构并生成文档"
 python main.py -e "分析项目"
 ```
 
+#### 自动生成 README 场景（sessions_spawn 并行 Agent）
+
+```bash
+python main.py --demo-readme --path /path/to/project
+```
+
+#### 自动生成测试用例场景（sessions_spawn 多 Agent 并行）
+
+```bash
+python main.py --demo-test --path /path/to/project
+```
+
 #### v2 模式 - 多进程固定分工
 
 ```bash
@@ -157,9 +169,11 @@ deepin-agent-teams/
 │   ├── worker_v2.py               # 可扩展 Worker（v3）
 │   ├── worker_researcher.py       # Researcher 子进程（v2）
 │   └── worker_coder.py           # Coder 子进程（v2）
-└── scenarios/
-    ├── code_analysis.py           # 场景一
-    └── literature_review.py        # 场景二
+├── scenarios/
+│   ├── code_analysis.py           # 场景一：代码分析
+│   ├── literature_review.py        # 场景二：文献综述
+│   ├── readme_generator.py         # 场景三：自动生成 README（sessions_spawn 并行）⭐
+│   └── test_generator.py           # 场景四：自动生成测试用例（sessions_spawn 多 Agent 并行）⭐
 ```
 
 ## 技术栈
@@ -176,7 +190,9 @@ deepin-agent-teams/
 | 第2周 Lead+Researcher | 4/8-4/14 | ✅ |
 | 第3周 Coder+场景一 | 4/15-4/21 | ✅ |
 | 第4周 架构重构 | 4/22-4/28 | ✅ |
-| 第5周 sessions_spawn v4 | 4/29-5/5 | ✅ |
+| 第5周 sessions_spawn v4 + 场景扩展 | 4/29-5/5 | 🔄 进行中 |
+
+> ⚠️ 第5周为当前周期，sessions_spawn v4 核心功能已完成，场景三/四新增完成，待黑客松答辩前整体验收。
 
 ## 参考资料
 
