@@ -35,17 +35,19 @@ from .system_monitor import (
     get_system_summary,
 )
 
-from .deepin_dbus import (
-    is_deepin,
-    get_audio_volume,
-    set_audio_volume,
-    toggle_mute,
-    get_brightness,
-    set_brightness,
-    open_control_center,
-    get_deepin_info,
+from .context_engine import (
+    UserContext,
+    IntentResult,
+    ContextEngine,
 )
 
+from .screen_ocr import (
+    ocr_image,
+    ocr_screen,
+    extract_text_regions,
+    understand_screen_context,
+    detect_interactive_elements,
+)
 
 __all__ = [
     # screen
@@ -81,4 +83,14 @@ __all__ = [
     "set_brightness",
     "open_control_center",
     "get_deepin_info",
+    # context
+    "UserContext",
+    "IntentResult",
+    "ContextEngine",
+    # OCR
+    "ocr_image",
+    "ocr_screen",
+    "extract_text_regions",
+    "understand_screen_context",
+    "detect_interactive_elements",
 ]
