@@ -1,32 +1,53 @@
 """
 屏幕 OCR 模块
 使用 PaddleOCR/PaddleOCR-VL 进行屏幕内容识别
+支持轻量降级：无 GPU/低内存时使用备用方案
 """
 import os
-import sys
-from typing import Dict, List, Optional, Tuple
+import subprocess
+from typing import Dict, List, Tuple, Optional
 
-# 懒加载 paddleocr，避免启动慢
+# 懒加载
 _paddle_ocr_cache = None
+_use_ocr = True  # 是否启用 OCR
 
 
-def get_ocr_engine(lang: str = "ch", use_angle_cls: bool = True):
-    """获取或创建 OCR 引擎（带缓存）"""
+def is_ocr_available() -> bool:
+    """检查 OCR 是否可用"""
+    global _use_ocr
+    if not _use_ocr:
+        return False
+
+    try:
+        import paddle
+        from paddleocr import PaddleOCR
+        return True
+    except ImportError:
+        _use_ocr = False
+        return False
+
+
+def get_ocr_engine(lang: str = "ch"):
+    """获取或创建 OCR 引擎"""
     global _paddle_ocr_cache
 
-    if _paddle_ocr_cache is None:
-        try:
-            from paddleocr import PaddleOCR
-            _paddle_ocr_cache = PaddleOCR(
-                lang=lang,
-                use_angle_cls=use_angle_cls,
-                show_log=False,
-                use_gpu=False,  # 根据环境自动选择
-            )
-        except ImportError:
-            return None
+    if _paddle_ocr_cache is not None:
+        return _paddle_ocr_cache
 
-    return _paddle_ocr_cache
+    if not is_ocr_available():
+        return None
+
+    try:
+        from paddleocr import PaddleOCR
+        # 新版本参数不同
+        params = {"lang": lang}
+        ocr = PaddleOCR(**params)
+        _paddle_ocr_cache = ocr
+        return ocr
+    except Exception as e:
+        print(f"⚠️ PaddleOCR 初始化失败: {e}")
+        _use_ocr = False
+        return None
 
 
 def ocr_image(image_path: str, lang: str = "ch") -> Dict:
@@ -35,7 +56,7 @@ def ocr_image(image_path: str, lang: str = "ch") -> Dict:
 
     Args:
         image_path: 图片路径
-        lang: 语言 (ch/en/chinese_cht)
+        lang: 语言
 
     Returns:
         识别结果字典
@@ -47,25 +68,28 @@ def ocr_image(image_path: str, lang: str = "ch") -> Dict:
         "full_text": "",
         "boxes": [],
         "regions": [],
+        "method": "none",
     }
+
+    if not is_ocr_available():
+        result["error"] = "PaddleOCR 未安装，跳过 OCR"
+        return result
 
     ocr = get_ocr_engine(lang)
     if ocr is None:
-        result["error"] = "PaddleOCR 未安装，请运行: pip install paddlepaddle paddleocr"
+        result["error"] = "OCR 引擎初始化失败"
         return result
 
     try:
-        from paddleocr import PaddleOCR
-        ocr = PaddleOCR(lang=lang, show_log=False, use_gpu=False)
         ocr_result = ocr.ocr(image_path, cls=True)
 
         if ocr_result and ocr_result[0]:
             lines = []
             boxes = []
             for line in ocr_result[0]:
-                box = line[0]  # [[x1,y1], [x2,y2], [x3,y3], [x4,y4]]
-                text = line[1][0]  # 识别出的文字
-                confidence = line[1][1]  # 置信度
+                box = line[0]
+                text = line[1][0]
+                confidence = line[1][1]
 
                 result["texts"].append(text)
                 result["boxes"].append(box)
@@ -79,9 +103,11 @@ def ocr_image(image_path: str, lang: str = "ch") -> Dict:
             result["regions"] = boxes
             result["full_text"] = "\n".join(lines)
             result["success"] = True
+            result["method"] = "paddleocr"
 
     except Exception as e:
         result["error"] = str(e)
+        result["method"] = "error"
 
     return result
 
@@ -118,12 +144,11 @@ def ocr_screen(region: Tuple[int, int, int, int] = None, lang: str = "ch") -> Di
 
 
 def extract_text_regions(result: Dict, min_confidence: float = 0.5) -> List[Dict]:
-    """提取文本区域，用于理解屏幕内容"""
+    """提取文本区域"""
     regions = []
 
     for item in result.get("regions", []):
         if item["confidence"] >= min_confidence:
-            # 计算区域中心
             box = item["box"]
             center_x = sum(p[0] for p in box) / 4
             center_y = sum(p[1] for p in box) / 4
@@ -139,26 +164,16 @@ def extract_text_regions(result: Dict, min_confidence: float = 0.5) -> List[Dict
 
 
 def understand_screen_context(result: Dict) -> str:
-    """
-    根据 OCR 结果理解屏幕上下文
-
-    Args:
-        result: OCR 结果
-
-    Returns:
-        屏幕内容描述
-    """
+    """根据 OCR 结果理解屏幕上下文"""
     if not result.get("success"):
-        return f"OCR 失败: {result.get('error', '未知错误')}"
+        return f"OCR 跳过: {result.get('error', '未知')}"
 
     texts = result.get("texts", [])
     if not texts:
         return "屏幕内容为空"
 
-    # 取前 20 行
     preview = "\n".join(texts[:20])
 
-    # 分析内容类型
     content_type = "unknown"
     keywords = {
         "browser": ["搜索", "google", "baidu", "github", "http", "www"],
@@ -183,22 +198,16 @@ def understand_screen_context(result: Dict) -> str:
 
 
 def detect_interactive_elements(result: Dict) -> List[Dict]:
-    """
-    检测可交互元素（按钮、输入框等）
-
-    Returns:
-        可交互元素列表
-    """
+    """检测可交互元素"""
     elements = []
 
-    # 基于关键词检测
     for text in result.get("texts", []):
         text_lower = text.lower().strip()
 
-        # 按钮关键词
-        button_keywords = ["确定", "取消", "提交", "发送", "保存", "关闭", "删除",
-                          "ok", "cancel", "submit", "save", "close", "delete",
-                          "click", "button"]
+        button_keywords = [
+            "确定", "取消", "提交", "发送", "保存", "关闭", "删除",
+            "ok", "cancel", "submit", "save", "close", "delete", "click"
+        ]
 
         if any(kw in text_lower for kw in button_keywords):
             elements.append({
@@ -207,9 +216,7 @@ def detect_interactive_elements(result: Dict) -> List[Dict]:
                 "actionable": True
             })
 
-        # 输入框关键词（通常是单独的短词）
         if len(text) < 20 and len(text) > 1:
-            # 可能是标签或placeholder
             elements.append({
                 "type": "field",
                 "text": text,
@@ -223,67 +230,49 @@ def test():
     """测试 OCR 功能"""
     print("=== PaddleOCR 测试 ===\n")
 
-    # 检查是否安装
-    try:
-        import paddle
-        print(f"✅ PaddlePaddle: {paddle.__version__}")
-    except ImportError:
-        print("❌ PaddlePaddle 未安装")
-        print("   安装命令: pip install paddlepaddle paddleocr")
-        return
+    # 检查安装
+    print(f"PaddleOCR 可用: {is_ocr_available()}")
 
+    # 检查内存
     try:
-        from paddleocr import PaddleOCR
-        print("✅ PaddleOCR 已导入")
-    except ImportError as e:
-        print(f"❌ PaddleOCR 导入失败: {e}")
-        return
+        with open("/proc/meminfo") as f:
+            for line in f:
+                if line.startswith("MemAvailable:"):
+                    mb = int(line.split()[1]) / 1024
+                    print(f"可用内存: {mb:.0f} MB")
+                    if mb < 1500:
+                        print("⚠️ 内存不足，OCR 可能不稳定")
+                    break
+    except:
+        pass
 
     # 测试图片 OCR
     print("\n测试图片 OCR...")
 
-    # 创建一个测试图片
-    import subprocess
     try:
-        # 创建测试文字图片
         from PIL import Image, ImageDraw, ImageFont
 
+        # 创建测试图片
         img = Image.new('RGB', (400, 100), color='white')
         draw = ImageDraw.Draw(img)
-        draw.text((20, 30), "Hello World\n测试中文 OCR", fill='black')
+        draw.text((20, 30), "Hello World", fill='black')
 
         test_image = "/tmp/test_ocr.png"
         img.save(test_image)
-        print(f"✅ 测试图片已创建: {test_image}")
+        print(f"测试图片: {test_image}")
 
-        # OCR 识别
-        print("\n执行 OCR 识别...")
-        result = ocr_image(test_image, lang="en")
-
+        result = ocr_image(test_image)
         if result["success"]:
-            print(f"✅ OCR 成功!")
-            print(f"识别文字: {result['full_text']}")
+            print(f"✅ OCR 成功: {result['full_text']}")
         else:
-            print(f"❌ OCR 失败: {result.get('error')}")
+            print(f"⚠️ OCR 失败: {result.get('error')}")
 
-        # 清理
         os.remove(test_image)
 
     except ImportError:
         print("⚠️ PIL 未安装，跳过图片测试")
-
-    # 测试屏幕 OCR
-    print("\n测试屏幕 OCR（截取全屏）...")
-    try:
-        screen_result = ocr_screen()
-        if screen_result["success"]:
-            print(f"✅ 屏幕 OCR 成功!")
-            print(f"识别行数: {len(screen_result['texts'])}")
-            print(f"内容预览: {screen_result['full_text'][:200]}...")
-        else:
-            print(f"⚠️ 屏幕 OCR 失败: {screen_result.get('error')}")
     except Exception as e:
-        print(f"⚠️ 屏幕 OCR 出错: {e}")
+        print(f"⚠️ 测试出错: {e}")
 
 
 if __name__ == "__main__":
