@@ -4,35 +4,38 @@
 
 > 在 deepin 25 操作系统上，基于 OpenClaw 多智能体框架和文心大模型 API，实现复杂任务的自动化拆解与协同执行。
 
-## 核心架构（v4.1 - 推荐）
-
-**Sessions-Spawn 架构（OpenClaw 原生多 Agent）**
+## 核心架构
 
 ```
-用户请求
-    ↓ erniebot 分解为 capabilities
+用户请求（自然语言）
+    ↓ 环境感知层（perception/）
+    ↓ 意图识别（关键词 + 置信度）
     ↓
-    OpenClaw Agent（在这里执行 sessions_spawn 调用）
-    ↓ sessions_spawn
-    ├── Researcher 子Agent → OpenClaw 工具：read, web_fetch, search
-    ├── Coder 子Agent → OpenClaw 工具：read, exec
-    └── General 子Agent → OpenClaw 工具：read, exec, write
-    ↓ sessions_send
-    子Agent 执行并返回 Markdown 报告
-    ↓
-    整合最终结果
+┌──────────────────────────────────────────┐
+│           🎯 场景路由器                   │
+│  邮件? → EmailAssistant                  │
+│  系统? → SystemDoctor                    │
+│  代码? → CodeAnalysisAssistant           │
+│  文献? → LiteratureAssistant             │
+└──────────────────────────────────────────┘
+    ↓ 任务拆分 + Agent 调度
+┌──────────┬──────────┬──────────┐
+│ 系统操作员 │ 信息收集员 │ 内容创作员 │
+│(SystemOp)│(InfoColl)│(ContCre)│
+└──────────┴──────────┴──────────┘
+    ↓ 协同执行 + 结果汇总
 ```
 
-**v4.1 生产级增强**：在 v4 基础上增加超时控制、重试机制、错误隔离、彩色分级日志、完整状态跟踪、优雅降级。
+## 4个场景（统一自包含模式）
 
-**架构对比：**
+所有场景遵循统一架构：`detect_intent → collect_context → process → generate_output → handle_command`
 
-| 版本 | 实现方式 | 工具能力 | 推荐场景 |
-|------|---------|---------|---------|
-| **v4.1（推荐）** | `sessions_spawn` + 生产级增强 | OpenClaw 原生工具 | 生产级多 Agent 协作 |
-| v4 | `sessions_spawn` 基础版 | OpenClaw 原生工具 | 快速演示 |
-| v3 | Registry + Python Worker | Python 函数 | 能力驱动扩展 |
-| v2 | Python subprocess | Python 函数 | 固定分工演示 |
+| 场景 | 文件 | 行数 | 功能 |
+|------|------|------|------|
+| 📧 场景一 | `email_assistant.py` | 409 | 智能邮件助手：意图识别→上下文收集→邮件生成→发送确认 |
+| 🩺 场景二 | `system_doctor.py` | 376 | 系统问题诊断：问题分类→多Agent诊断→自动修复 |
+| 🔍 场景三 | `code_analysis.py` | 410 | 代码分析助手：路径检测→项目扫描→核心分析→报告生成 |
+| 📚 场景四 | `literature_review.py` | 430 | 文献阅读助手：文件检测→文献读取→关键提取→综述生成 |
 
 ## 快速开始
 
@@ -41,13 +44,17 @@
 - Python 3.10+
 - deepin 25 / Ubuntu 20.04+
 - 文心大模型 API（AI Studio token）
-- OpenClaw（用于 v4 模式）
 
 ### 安装
 
 ```bash
 git clone https://github.com/sshnuke3/deepin-agent-teams.git
 cd deepin-agent-teams
+
+# deepin 25 一键部署（推荐）
+bash deepin25_deploy.sh
+
+# 或手动安装
 pip install -r requirements.txt
 ```
 
@@ -58,94 +65,46 @@ cp .env.example .env
 # 编辑 .env，填入你的 AI Studio Access Token
 ```
 
-### 运行
-
-#### v4.1 模式（推荐）- Sessions-Spawn 生产级
+### 运行演示
 
 ```bash
-# 分解任务，输出 sessions_spawn 指令（推荐方式）
-python agents/sessions_orchestrator_prod.py "分析项目代码结构并生成文档"
+# 所有场景批量演示
+python main.py -d all
 
-# 通过 main.py 调用
+# 单个场景演示
+python main.py -d email                              # 邮件助手
+python main.py -d doctor                             # 系统诊断
+python main.py -d code-analysis -p /path/to/project  # 代码分析
+python main.py -d literature -f a.pdf b.pdf -q 问题  # 文献阅读
+
+# 交互模式（支持所有4个场景自动路由）
+python main.py -i
+
+# v4.1 生产级模式（sessions_spawn）
 python main.py --v41 "分析项目"
-
-# 将输出的 Python 指令复制到 OpenClaw 对话中执行
-
-# 可选参数：
-#   --timeout 120      单 Agent 超时秒数（默认 120）
-#   --global-timeout 300 全局超时秒数（默认 300）
-#   --retry 2          最大重试次数（默认 2）
-#   --quiet            静默模式
 ```
 
-#### v4 模式 - Sessions-Spawn 基础版
+## 环境感知层（perception/）
+
+| 模块 | 功能 |
+|------|------|
+| `screen_capture.py` | 屏幕截图（grim/scrot） |
+| `clipboard_monitor.py` | 剪贴板监控（xclip） |
+| `window_manager.py` | 窗口管理（wmctrl/xdotool） |
+| `system_monitor.py` | 系统监控（systemctl/诊断） |
+| `deepin_dbus.py` | deepin D-Bus 接口 |
+| `screen_ocr.py` | OCR 识别（PaddleOCR） |
+| `context_engine.py` | 上下文引擎（意图识别） |
+
+### 实体机测试
 
 ```bash
-# 分解任务，输出 sessions_spawn 指令
-python agents/sessions_orchestrator.py "分析项目代码结构并生成文档"
+# 在 deepin 25 实体机上运行
+python3 tests/test_perception_deepin25.py
 
-# 将输出的 Python 指令复制到 OpenClaw 对话中执行
-```
-
-#### v3 模式 - 可扩展架构
-
-```bash
-python main.py -e "分析项目"
-```
-
-#### 自动生成 README 场景（sessions_spawn 并行 Agent）
-
-```bash
-python main.py --demo-readme --path /path/to/project
-```
-
-#### 自动生成测试用例场景（sessions_spawn 多 Agent 并行）
-
-```bash
-python main.py --demo-test --path /path/to/project
-```
-
-#### v2 模式 - 多进程固定分工
-
-```bash
-python main.py -m "分析项目"
-```
-
-#### v1 模式 - 单进程演示
-
-```bash
-python main.py --demo code-analysis
-```
-
-## v4 Sessions-Spawn 详解
-
-### 工作原理
-
-1. **任务分解**：erniebot 将用户需求分解为 capabilities
-2. **Spawn 子Agent**：`sessions_spawn()` 创建有 OpenClaw 工具的真正子 Agent
-3. **分发任务**：`sessions_send()` 向子 Agent 发送具体任务
-4. **执行并返回**：子 Agent 用 OpenClaw 工具执行，返回 Markdown 报告
-
-### sessions_spawn 调用示例
-
-```python
-sessions_spawn(
-    task='''你是 Researcher Agent，在 deepin-agent-teams 中工作。
-使用 read/web_fetch/search 工具分析信息，完成后以「[任务完成]」结尾。''',
-    label='researcher-1',
-    mode='run',
-    runTimeoutSeconds=120,
-)
-```
-
-### sessions_send 调用示例
-
-```python
-sessions_send(
-    sessionKey='agent:main:subagent:<uuid>',
-    message='任务：分析 /path/to/project 的代码结构',
-    timeoutSeconds=120,
-)
+# 结果文件: tests/test_results_TIMESTAMP.json
+# 拷回本机分析:
+python3 tests/analyze_results.py tests/test_results_*.json
 ```
 
 ## 项目结构
@@ -154,26 +113,31 @@ sessions_send(
 deepin-agent-teams/
 ├── main.py                          # CLI 入口
 ├── config.py                        # 配置
+├── deepin_agent.py                  # Agent 入口
+├── deepin25_deploy.sh               # deepin25 部署脚本
 ├── requirements.txt
-├── .env.example
-├── agents/
-│   ├── base.py                      # Agent 基类（erniebot 封装）
-│   ├── lead.py                     # Lead Agent
-│   ├── researcher.py                # Researcher Agent
-│   ├── coder.py                    # Coder Agent
-│   ├── registry.py                 # Agent 注册中心（v3）
-│   ├── orchestrator.py             # 多进程 Orchestrator（v2）
-│   ├── orchestrator_extensible.py # 可扩展 Orchestrator（v3）
-│   ├── sessions_orchestrator.py     # Sessions-Spawn 编排器（v4）
-│   ├── sessions_orchestrator_prod.py # Sessions-Spawn 生产级编排器（v4.1）⭐
-│   ├── worker_v2.py               # 可扩展 Worker（v3）
-│   ├── worker_researcher.py       # Researcher 子进程（v2）
-│   └── worker_coder.py           # Coder 子进程（v2）
-├── scenarios/
-│   ├── code_analysis.py           # 场景一：代码分析
-│   ├── literature_review.py        # 场景二：文献综述
-│   ├── readme_generator.py         # 场景三：自动生成 README（sessions_spawn 并行）⭐
-│   └── test_generator.py           # 场景四：自动生成测试用例（sessions_spawn 多 Agent 并行）⭐
+├── perception/                      # 环境感知层
+│   ├── screen_capture.py            # 屏幕截图
+│   ├── clipboard_monitor.py         # 剪贴板监控
+│   ├── window_manager.py            # 窗口管理
+│   ├── system_monitor.py            # 系统监控
+│   ├── deepin_dbus.py               # D-Bus 接口
+│   ├── screen_ocr.py                # OCR 识别
+│   └── context_engine.py            # 上下文引擎
+├── agents/                          # Agent 模块
+│   ├── system_operator.py           # 系统操作员
+│   ├── information_collector.py     # 信息收集员
+│   ├── content_creator.py           # 内容创作员
+│   ├── sessions_orchestrator_prod.py # 生产级编排器
+│   └── ...
+├── scenarios/                       # 4个场景
+│   ├── email_assistant.py           # 场景一：智能邮件助手
+│   ├── system_doctor.py             # 场景二：系统问题诊断
+│   ├── code_analysis.py             # 场景三：代码分析助手
+│   └── literature_review.py         # 场景四：文献阅读助手
+└── tests/                           # 测试脚本
+    ├── test_perception_deepin25.py  # 感知层测试
+    └── analyze_results.py           # 结果分析
 ```
 
 ## 技术栈
@@ -181,6 +145,8 @@ deepin-agent-teams/
 - **Agent 框架**: OpenClaw（sessions_spawn 多 Agent 协作）
 - **大模型**: 文心大模型（erniebot SDK）
 - **编程语言**: Python 3.10+
+- **OCR**: PaddleOCR
+- **目标系统**: deepin 25
 
 ## 实施进度
 
@@ -189,10 +155,10 @@ deepin-agent-teams/
 | 第1周 部署+框架 | 4/1-4/7 | ✅ |
 | 第2周 Lead+Researcher | 4/8-4/14 | ✅ |
 | 第3周 Coder+场景一 | 4/15-4/21 | ✅ |
-| 第4周 架构重构 | 4/22-4/28 | ✅ |
-| 第5周 sessions_spawn v4 + 场景扩展 | 4/29-5/5 | 🔄 进行中 |
-
-> ⚠️ 第5周为当前周期，sessions_spawn v4 核心功能已完成，场景三/四新增完成，待黑客松答辩前整体验收。
+| 第4周 架构重构+场景扩展 | 4/22-4/28 | ✅ |
+| 第5周 感知层实体机验证 | 4/29-5/5 | 🔄 进行中 |
+| 第6-8周 场景联动+集成 | 5/6-5/26 | ❌ |
+| 第9-10周 录屏+提交 | 5/27-6/9 | ❌ |
 
 ## 参考资料
 
