@@ -5,8 +5,8 @@ deepin-agent-teams - 多智能体协作系统
 """
 import argparse
 import os
-from agents import LeadAgent, ResearcherAgent, CoderAgent
-from scenarios import CodeAnalysisScenario, LiteratureReviewScenario
+import sys
+from scenarios import CodeAnalysisAssistant, LiteratureAssistant, EmailAssistant, SystemDoctor
 from config import ERNIEBOT_ACCESS_TOKEN, DEFAULT_ACCESS_TOKEN
 
 
@@ -14,12 +14,8 @@ def parse_args():
     parser = argparse.ArgumentParser(description="deepin Agent Teams - 多智能体协作系统")
     parser.add_argument("task", nargs="?", help="要执行的任务描述")
     parser.add_argument("--interactive", "-i", action="store_true", help="交互模式")
-    parser.add_argument("--demo", "-d", choices=["code-analysis", "literature", "all"],
+    parser.add_argument("--demo", "-d", choices=["code-analysis", "literature", "email", "doctor", "all"],
                         help="运行预设演示场景")
-    parser.add_argument("--demo-readme", action="store_true",
-                        help="场景：自动生成 README（sessions_spawn 并行）")
-    parser.add_argument("--demo-test", action="store_true",
-                        help="场景：自动生成测试用例（sessions_spawn 多 Agent 并行）")
     parser.add_argument("--multi", "-m", action="store_true",
                         help="使用多进程多 Agent 模式")
     parser.add_argument("--extensible", "-e", action="store_true",
@@ -35,91 +31,76 @@ def parse_args():
     return parser.parse_args()
 
 
-def init_agents(verbose: bool = True):
-    """初始化 Agent 系统"""
-    researcher = ResearcherAgent(verbose=verbose)
-    coder = CoderAgent(verbose=verbose)
-    lead = LeadAgent(researcher, coder, verbose=verbose)
-    return lead, researcher, coder
-
-
-def run_demo_all(lead: LeadAgent, researcher: ResearcherAgent, coder: CoderAgent):
+def run_demo_all():
     """运行所有演示场景"""
-    print("\n" + "="*60)
+    print("\n" + "=" * 60)
     print("🧪 deepin-agent-teams 演示模式")
-    print("="*60)
+    print("=" * 60)
 
-    # 场景一：代码分析
-    print("\n\n" + "🔷"*25)
-    scenario1 = CodeAnalysisScenario(researcher, coder, lead)
-    project_path = os.path.dirname(os.path.abspath(__file__))  # 分析自己
-    result1 = scenario1.run(project_path)
-    print("\n📄 生成的文档预览：")
-    print("-"*40)
-    print(result1[:1500] + "..." if len(result1) > 1500 else result1)
+    # 场景一：智能邮件助手
+    print("\n\n" + "🔷" * 25)
+    print("📧 场景一：智能邮件助手")
+    print("-" * 40)
+    assistant = EmailAssistant()
+    result = assistant.run("给张三发邮件说项目进度")
+    print(f"\n结果: {'✅' if result['success'] else '❌'}")
 
-    # 场景二：文献综述
-    print("\n\n" + "🔷"*25)
-    print("📚 场景二演示（需要提供 PDF/文本文件）")
-    print("   使用方式: python main.py --demo literature --files <file1> <file2> --question <问题>")
-    print("-"*40)
+    # 场景二：系统问题诊断
+    print("\n\n" + "🔷" * 25)
+    print("🩺 场景二：系统问题诊断")
+    print("-" * 40)
+    doctor = SystemDoctor()
+    result = doctor.run("打印机连不上了")
+    print(f"\n结果: {'✅' if result['success'] else '❌'}")
 
-    print("\n\n" + "="*60)
+    # 场景三：代码分析
+    print("\n\n" + "🔷" * 25)
+    print("🔍 场景三：代码分析助手")
+    print("-" * 40)
+    analyzer = CodeAnalysisAssistant()
+    project_path = os.path.dirname(os.path.abspath(__file__))
+    result = analyzer.run(f"分析 {project_path} 的代码")
+    print(f"\n结果: {'✅' if result['success'] else '❌'}")
+
+    print("\n\n" + "=" * 60)
     print("✅ 所有演示场景完成")
-    print("="*60)
+    print("=" * 60)
 
 
 def main():
     args = parse_args()
-    verbose = args.verbose
 
     # 检查 API 凭证
     if not (ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN):
         print("⚠️  警告: 未设置 ERNIEBOT_ACCESS_TOKEN")
         print("   设置方式: cp .env.example .env && 编辑 .env 填入 token\n")
 
-    # 初始化 Agent
-    print("🚀 初始化 Agent 系统...")
-    lead, researcher, coder = init_agents(verbose)
-
     # 演示模式
     if args.demo:
         if args.demo == "code-analysis":
-            scenario = CodeAnalysisScenario(researcher, coder, lead)
+            assistant = CodeAnalysisAssistant()
             path = args.path or os.path.dirname(os.path.abspath(__file__))
-            result = scenario.run(path)
-            print("\n📄 生成的文档：")
-            print("-"*40)
-            print(result)
+            assistant.run(f"分析 {path} 的代码")
 
         elif args.demo == "literature":
-            if not args.files or not args.question:
-                print("❌ 文献综述场景需要: --files <文件列表> --question <研究问题>")
+            if not args.files:
+                print("❌ 文献综述场景需要: --files <文件列表> [--question <研究问题>]")
                 return
-            scenario = LiteratureReviewScenario(researcher, coder, lead)
-            result = scenario.run(args.files, args.question)
-            print("\n📄 生成的综述：")
-            print("-"*40)
-            print(result)
+            assistant = LiteratureAssistant()
+            question = args.question or "请分析这些文献的核心观点"
+            file_args = " ".join(args.files)
+            assistant.run(f"分析 {question} {file_args}")
+
+        elif args.demo == "email":
+            assistant = EmailAssistant()
+            assistant.run("给张三发邮件说项目进度", auto_send=False)
+
+        elif args.demo == "doctor":
+            doctor = SystemDoctor()
+            doctor.run("打印机连不上了", auto_fix=False)
 
         elif args.demo == "all":
-            run_demo_all(lead, researcher, coder)
-        return
-
-    # 新场景：自动生成 README
-    if args.demo_readme:
-        from scenarios.readme_generator import main as readme_main
-        import sys
-        sys.argv = ["readme_generator.py", args.path or "."]
-        readme_main()
-        return
-
-    # 新场景：自动生成测试用例
-    if args.demo_test:
-        from scenarios.test_generator import main as test_main
-        import sys
-        sys.argv = ["test_generator.py", args.path or "."]
-        test_main()
+            run_demo_all()
         return
 
     # 多进程多 Agent 模式（真正并行）
@@ -131,9 +112,9 @@ def main():
             args.task or "分析当前项目",
             project_path=args.path or os.path.dirname(os.path.abspath(__file__))
         )
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("最终报告：")
-        print("="*60)
+        print("=" * 60)
         print(result["final_report"])
         return
 
@@ -146,9 +127,9 @@ def main():
             args.task or "分析当前项目",
             project_path=args.path or os.path.dirname(os.path.abspath(__file__))
         )
-        print("\n" + "="*60)
+        print("\n" + "=" * 60)
         print("最终报告：")
-        print("="*60)
+        print("=" * 60)
         print(result["final_report"])
         return
 
@@ -164,7 +145,6 @@ python agents/sessions_orchestrator.py "你的任务"
 将输出的 Python 指令复制到 OpenClaw 对话中执行，即可创建真正的 OpenClaw 子 Agent。
 """)
         from agents.sessions_orchestrator import main as sessions_main
-        import sys
         sys.argv = ["sessions_orchestrator.py", args.task or "分析当前项目"]
         sessions_main()
         return
@@ -187,51 +167,85 @@ python agents/sessions_orchestrator_prod.py "你的任务"
 将输出的 Python 指令复制到 OpenClaw 对话中执行。
 """)
         from agents.sessions_orchestrator_prod import main as sessions_prod_main
-        import sys
         sys.argv = ["sessions_orchestrator_prod.py", args.task or "分析当前项目"]
         sessions_prod_main()
         return
 
     # 交互模式
     if args.interactive:
-        print("\n" + "="*50)
+        print("\n" + "=" * 50)
         print("deepin-agent-teams 交互模式")
-        print("输入你的需求，Ctrl+C 退出")
-        print("="*50)
-        print("可用命令：")
-        print("  分析代码  /path/to/project  - 分析项目代码")
-        print("  文献综述  <问题> [文件列表] - 生成文献综述")
-        print("  exit/quit - 退出\n")
+        print("=" * 50)
+        print("可用场景：")
+        print("  📧 邮件助手: '给张三发邮件说项目进度'")
+        print("  🩺 系统诊断: '打印机连不上了'")
+        print("  🔍 代码分析: '分析 /path/to/project 的代码'")
+        print("  📚 文献阅读: '分析这些文献 /path/1.pdf 研究问题'")
+        print("  输入 exit/quit 退出\n")
+
+        scenarios = [
+            EmailAssistant(),
+            SystemDoctor(),
+            CodeAnalysisAssistant(),
+            LiteratureAssistant(),
+        ]
 
         while True:
             try:
-                user_input = input("\n[你] ")
-                if user_input.strip().lower() in ("exit", "quit", "退出"):
+                user_input = input("\n👤 你: ").strip()
+                if not user_input:
+                    continue
+                if user_input.lower() in ("exit", "quit", "退出"):
+                    print("再见！👋")
                     break
-                response = lead.handle(user_input)
-                print(f"\n[Lead] {response}\n")
-            except KeyboardInterrupt:
-                print("\n\n退出。")
-                break
-        return
 
-    # 单任务模式
-    if args.task:
-        print(f"[任务] {args.task}\n")
-        result = lead.handle(args.task)
-        print("\n" + "="*50)
-        print("最终输出：")
-        print("="*50)
-        print(result)
+                # 尝试每个场景的意图识别
+                handled = False
+                for scenario in scenarios:
+                    # 检查是否有待处理命令
+                    if hasattr(scenario, 'pending_draft') and scenario.pending_draft:
+                        result = scenario.handle_command(user_input)
+                        if result.get("success"):
+                            handled = True
+                            break
+                    if hasattr(scenario, 'last_analysis') and scenario.last_analysis:
+                        result = scenario.handle_command(user_input)
+                        if result.get("success"):
+                            handled = True
+                            break
+                    if hasattr(scenario, 'last_review') and scenario.last_review:
+                        result = scenario.handle_command(user_input)
+                        if result.get("success"):
+                            handled = True
+                            break
+
+                if not handled:
+                    # 尝试各个场景
+                    for scenario in scenarios:
+                        result = scenario.run(user_input)
+                        if result.get("success"):
+                            handled = True
+                            break
+
+                    if not handled:
+                        print("❌ 未识别到有效意图，请重试")
+
+            except KeyboardInterrupt:
+                print("\n\n再见！👋")
+                break
         return
 
     # 默认：显示帮助
     print(__doc__)
     print("\n使用示例：")
-    print("  python agents/sessions_orchestrator.py '分析项目'      # v4 sessions_spawn（推荐）")
-    print("  python main.py -e '分析项目'                        # 可扩展架构（能力驱动）")
-    print("  python main.py -m '分析项目'                          # 多进程模式（固定分工）")
-    print("  python main.py --demo code-analysis                   # 单进程演示")
+    print("  python main.py -d all                              # 运行所有演示")
+    print("  python main.py -d code-analysis -p /path/to/proj  # 代码分析演示")
+    print("  python main.py -d literature -f a.pdf b.pdf -q 问题 # 文献综述演示")
+    print("  python main.py -d email                            # 邮件助手演示")
+    print("  python main.py -d doctor                           # 系统诊断演示")
+    print("  python main.py -i                                  # 交互模式")
+    print("  python main.py --v41 '分析项目'                    # v4.1 生产级模式")
+    print("  python main.py -e '分析项目'                       # 可扩展架构")
 
 
 if __name__ == "__main__":
