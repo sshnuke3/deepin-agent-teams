@@ -4,6 +4,7 @@ Deepin D-Bus 接口模块
 """
 import subprocess
 import json
+import os
 from typing import Dict, Optional, List
 from dataclasses import dataclass
 
@@ -344,6 +345,224 @@ def get_deepin_info() -> Dict:
     return info
 
 
+def get_network_status() -> Dict:
+    """
+    获取网络状态
+
+    Returns:
+        {connected: bool, wifi_enabled: bool, connections: list}
+    """
+    result = {
+        "connected": False,
+        "wifi_enabled": False,
+        "connections": [],
+        "active_connection": "",
+    }
+
+    # 检查网络连接状态
+    try:
+        r = subprocess.run(
+            ["nmcli", "-t", "-f", "NAME,TYPE,DEVICE", "connection", "show", "--active"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0 and r.stdout.strip():
+            result["connected"] = True
+            for line in r.stdout.strip().split("\n"):
+                parts = line.split(":")
+                if len(parts) >= 2:
+                    conn = {"name": parts[0], "type": parts[1], "device": parts[2] if len(parts) > 2 else ""}
+                    result["connections"].append(conn)
+                    if not result["active_connection"]:
+                        result["active_connection"] = parts[0]
+    except Exception:
+        pass
+
+    # 检查 WiFi 开关
+    try:
+        r = subprocess.run(
+            ["nmcli", "radio", "wifi"],
+            capture_output=True, text=True, timeout=5,
+        )
+        result["wifi_enabled"] = "enabled" in r.stdout.lower()
+    except Exception:
+        pass
+
+    return result
+
+
+def set_wifi_enabled(enabled: bool) -> bool:
+    """开关 WiFi"""
+    state = "on" if enabled else "off"
+    try:
+        r = subprocess.run(
+            ["nmcli", "radio", "wifi", state],
+            capture_output=True, text=True, timeout=10,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def get_wifi_list() -> List[Dict]:
+    """获取可用 WiFi 列表"""
+    networks = []
+    try:
+        r = subprocess.run(
+            ["nmcli", "-t", "-f", "SSID,SIGNAL,SECURITY,BSSID", "dev", "wifi", "list", "--rescan", "yes"],
+            capture_output=True, text=True, timeout=15,
+        )
+        if r.returncode == 0:
+            seen = set()
+            for line in r.stdout.strip().split("\n"):
+                parts = line.split(":")
+                if len(parts) >= 3 and parts[0] and parts[0] not in seen:
+                    seen.add(parts[0])
+                    networks.append({
+                        "ssid": parts[0],
+                        "signal": int(parts[1]) if parts[1].isdigit() else 0,
+                        "security": parts[2],
+                    })
+            networks.sort(key=lambda x: x["signal"], reverse=True)
+    except Exception:
+        pass
+    return networks
+
+
+def connect_wifi(ssid: str, password: str = None) -> bool:
+    """连接 WiFi"""
+    cmd = ["nmcli", "dev", "wifi", "connect", ssid]
+    if password:
+        cmd.extend(["password", password])
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def get_display_info() -> Dict:
+    """获取显示器信息"""
+    result = {"monitors": [], "brightness": 0.0}
+    try:
+        r = subprocess.run(
+            ["xrandr", "--query"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            import re
+            for line in r.stdout.split("\n"):
+                match = re.match(r'(\S+)\s+connected\s+(\d+)x(\d+)\+(\d+)\+(\d+)', line)
+                if match:
+                    result["monitors"].append({
+                        "name": match.group(1),
+                        "resolution": f"{match.group(2)}x{match.group(3)}",
+                        "position": f"+{match.group(4)}+{match.group(5)}",
+                    })
+    except Exception:
+        pass
+    result["brightness"] = get_brightness()
+    return result
+
+
+def get_appearance() -> Dict:
+    """获取桌面主题设置"""
+    result = {"theme": "unknown", "icon_theme": "", "wallpaper": ""}
+    try:
+        # 深色/浅色模式
+        r = subprocess.run(
+            ["gsettings", "get", "com.deepin.dde.appearance", "style-name"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            result["theme"] = r.stdout.strip().strip("'")
+    except Exception:
+        pass
+
+    try:
+        # 图标主题
+        r = subprocess.run(
+            ["gsettings", "get", "com.deepin.dde.appearance", "icon-theme"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            result["icon_theme"] = r.stdout.strip().strip("'")
+    except Exception:
+        pass
+
+    try:
+        # 壁纸
+        r = subprocess.run(
+            ["gsettings", "get", "com.deepin.dde.appearance", "background-uris"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            result["wallpaper"] = r.stdout.strip().strip("'")
+    except Exception:
+        pass
+
+    return result
+
+
+def set_dark_mode(dark: bool) -> bool:
+    """切换深色/浅色模式"""
+    theme = "deepin-dark" if dark else "deepin"
+    try:
+        r = subprocess.run(
+            ["gsettings", "set", "com.deepin.dde.appearance", "style-name", f"'{theme}'"],
+            capture_output=True, text=True, timeout=5,
+        )
+        return r.returncode == 0
+    except Exception:
+        return False
+
+
+def get_battery_status() -> Dict:
+    """获取电池状态"""
+    result = {"has_battery": False, "percent": 0, "charging": False, "time_remaining": ""}
+    try:
+        # 检查电池
+        bat_path = "/sys/class/power_supply/BAT0"
+        if os.path.exists(bat_path):
+            result["has_battery"] = True
+            with open(f"{bat_path}/capacity") as f:
+                result["percent"] = int(f.read().strip())
+            with open(f"{bat_path}/status") as f:
+                status = f.read().strip()
+                result["charging"] = status in ("Charging", "Full")
+
+        # 用 upower 获取剩余时间
+        r = subprocess.run(
+            ["upower", "-i", "/org/freedesktop/UPower/devices/battery_BAT0"],
+            capture_output=True, text=True, timeout=5,
+        )
+        if r.returncode == 0:
+            import re
+            match = re.search(r'time to (?:full|empty):\s+(.+)', r.stdout)
+            if match:
+                result["time_remaining"] = match.group(1).strip()
+    except Exception:
+        pass
+    return result
+
+
+def get_deepin_control_status() -> Dict:
+    """
+    获取 deepin 控制中心全面状态（用于 system_doctor 诊断）
+
+    Returns:
+        {network, audio, display, appearance, battery, bluetooth}
+    """
+    return {
+        "network": get_network_status(),
+        "audio": {"volume": get_audio_volume()},
+        "display": get_display_info(),
+        "appearance": get_appearance(),
+        "battery": get_battery_status(),
+        "is_deepin": is_deepin(),
+        "deepin_version": get_deepin_info().get("version", ""),
+    }
+
+
 def test():
     """测试 deepin D-Bus 功能"""
     print(f"Deepin 系统: {is_deepin()}")
@@ -367,6 +586,29 @@ def test():
     print("\n=== 音频测试 ===")
     vol = get_audio_volume()
     print(f"当前音量: {vol}%")
+
+    print("\n=== 网络状态 ===")
+    net = get_network_status()
+    print(f"  已连接: {net['connected']}")
+    print(f"  WiFi: {'开启' if net['wifi_enabled'] else '关闭'}")
+    print(f"  当前连接: {net['active_connection']}")
+
+    print("\n=== 电池状态 ===")
+    bat = get_battery_status()
+    print(f"  有电池: {bat['has_battery']}")
+    if bat["has_battery"]:
+        print(f"  电量: {bat['percent']}%")
+        print(f"  充电中: {bat['charging']}")
+
+    print("\n=== 主题设置 ===")
+    theme = get_appearance()
+    print(f"  主题: {theme['theme']}")
+    print(f"  图标: {theme['icon_theme']}")
+
+    print("\n=== 显示器 ===")
+    display = get_display_info()
+    for m in display.get("monitors", []):
+        print(f"  {m['name']}: {m['resolution']}")
 
 
 if __name__ == "__main__":
