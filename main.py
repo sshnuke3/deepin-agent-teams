@@ -24,6 +24,8 @@ def parse_args():
                         help="使用 sessions_spawn v4 架构（OpenClaw 原生多 Agent）")
     parser.add_argument("--v41", "-41", action="store_true",
                         help="使用 v4.1 生产级架构（超时+重试+日志+降级）")
+    parser.add_argument("--gui", "-g", action="store_true",
+                        help="启动 GUI 模式（悬浮球+对话窗口+系统托盘）")
     parser.add_argument("--path", "-p", help="项目路径（用于代码分析场景）")
     parser.add_argument("--files", "-f", nargs="+", help="文件路径列表（用于文献综述场景）")
     parser.add_argument("--question", "-q", help="研究问题（用于文献综述场景）")
@@ -235,6 +237,12 @@ python agents/sessions_orchestrator_prod.py "你的任务"
                 break
         return
 
+    # GUI 模式
+    if args.gui:
+        from gui.main_gui import main as gui_main
+        gui_main()
+        return
+
     # 默认：显示帮助
     print(__doc__)
     print("\n使用示例：")
@@ -246,6 +254,7 @@ python agents/sessions_orchestrator_prod.py "你的任务"
     print("  python main.py -i                                  # 交互模式")
     print("  python main.py --v41 '分析项目'                    # v4.1 生产级模式")
     print("  python main.py -e '分析项目'                       # 可扩展架构")
+    print("  python main.py --gui                                # GUI 模式（悬浮球+对话窗口）")
 
 
 if __name__ == "__main__":
