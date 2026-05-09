@@ -23,6 +23,10 @@ class SystemDoctor:
     def __init__(self):
         self.operator = SystemOperator()
         self.collector = InformationCollector()
+        # 多轮对话状态
+        self._clarification_pending: Optional[Dict] = None
+        # 最近一次修复结果（用于效果验证）
+        self._last_fix_result: Optional[Dict] = None
 
         self.issue_keywords = {
             "audio": ["声音", "音频", "声卡", "没声", "audio", "sound", "sound card"],
@@ -212,7 +216,7 @@ class SystemDoctor:
 
     def run(self, user_input: str, auto_fix: bool = False) -> Dict:
         """
-        执行系统诊断修复
+        执行系统诊断修复（支持多轮对话/意图澄清）
 
         Args:
             user_input: 用户问题描述
@@ -231,8 +235,13 @@ class SystemDoctor:
             "diagnosis": None,
             "fix_plan": None,
             "execution": None,
-            "steps": []
+            "steps": [],
+            "needs_clarification": False,
         }
+
+        # 处理多轮对话：有待回答的澄清问题
+        if self._clarification_pending:
+            return self._continue_clarification(user_input, auto_fix)
 
         # Step 1: 问题分类
         print("\n[Step 1] 问题分类...")
@@ -241,10 +250,16 @@ class SystemDoctor:
         result["steps"].append({"step": "classification", "done": True})
 
         if classification["type"] == "unknown":
-            print("❌ 无法识别问题类型，尝试进行系统信息收集...")
-            # 收集系统信息作为兜底
-            summary = self.operator.execute_command("echo '系统信息收集' && uname -a && uptime")
-            result["system_info"] = summary.stdout
+            # 多轮澄清：问题描述不清时主动追问
+            question = self._build_clarification_question(user_input)
+            print(f"\n🤔 {question}")
+            self._clarification_pending = {
+                "original_input": user_input,
+                "question": question,
+            }
+            result["needs_clarification"] = True
+            result["question"] = question
+            result["success"] = True
             return result
 
         type_names = {
@@ -304,21 +319,93 @@ class SystemDoctor:
             print("\n[Step 4] 执行修复...")
             execution = self.execute_fix(fix_plan)
             result["execution"] = execution
+            self._last_fix_result = execution
             result["steps"].append({"step": "execution", "done": True})
 
-            # Step 5: 验证修复
-            print("\n[Step 5] 验证修复...")
-            verification = self.diagnose(classification["type"])
-            remaining = verification.get("issues", [])
+            # Step 5: 验证修复（赛题明确要求）
+            print("\n[Step 5] 验证修复效果...")
+            verification = self.verify_fix(classification["type"])
+            result["verification"] = verification
+            result["steps"].append({"step": "verification", "done": True, "resolved": verification["resolved"]})
 
-            if remaining:
-                print(f"⚠️  仍有 {len(remaining)} 个问题:")
-                for issue in remaining:
-                    print(f"   • {issue}")
-            else:
-                print("✅ 所有问题已解决!")
+            if not verification["resolved"] and verification["remaining_issues"]:
+                # 未解决时给出替代方案
+                print("\n💡 替代方案建议:")
+                print("  1. 检查硬件连接是否正常")
+                print("  2. 尝试重启系统")
+                print("  3. 查看系统日志获取更多信息")
 
         result["success"] = True
+        return result
+
+    def _build_clarification_question(self, user_input: str) -> str:
+        """生成澄清追问：问题描述不清时主动询问具体是什么问题"""
+        return (
+            "🤔 我不太确定你遇到了什么问题，能具体描述一下吗？\n"
+            "\n比如：\n"
+            "  • 打印机连不上 / 打印没反应\n"
+            "  • 没声音了 / 音频播放异常\n"
+            "  • 网络连不上 / WiFi断了\n"
+            "  • 蓝牙连不上\n"
+            "  • 想安装某个软件"
+        )
+
+    def _continue_clarification(self, user_input: str, auto_fix: bool) -> Dict:
+        """处理用户对澄清问题的回答，继续诊断流程"""
+        self._clarification_pending = None
+
+        # 重新分类（用用户的补充描述）
+        classification = self.classify_issue(user_input)
+
+        if classification["type"] == "unknown":
+            # 仍然无法识别，尝试全系统扫描
+            print("❌ 仍然无法识别问题类型，进行系统全面扫描...")
+            result = {"success": True, "steps": [], "needs_clarification": False}
+            summary = self.operator.execute_command(
+                "echo '=== 系统信息 ===' && uname -a && uptime && "
+                "echo '=== 磁盘 ===' && df -h | head -5 && "
+                "echo '=== 内存 ===' && free -h && "
+                "echo '=== 网络 ===' && ip addr show | grep inet && "
+                "echo '=== 最近错误 ===' && journalctl -p err -n 10 --no-pager",
+                timeout=15
+            )
+            result["system_info"] = summary.stdout if summary.success else summary.stderr
+            print("\n📋 系统全面信息:")
+            print(result["system_info"][:500])
+            return result
+
+        # 识别成功，用新的输入重新走诊断流程
+        print(f"✅ 已识别为: {classification['type']}，开始诊断...")
+        return self.run(user_input, auto_fix=auto_fix)
+
+    def verify_fix(self, issue_type: str, wait_seconds: int = 3) -> Dict:
+        """
+        修复效果验证：修复后重新检查系统状态
+
+        Returns:
+            {resolved: bool, remaining_issues: list}
+        """
+        import time
+        print(f"\n🔍 验证修复效果（等待{wait_seconds}秒）...")
+        time.sleep(wait_seconds)
+
+        verification = self.diagnose(issue_type)
+        remaining = verification.get("issues", [])
+
+        result = {
+            "resolved": len(remaining) == 0,
+            "remaining_issues": remaining,
+            "checks": verification.get("checks", {}),
+        }
+
+        if result["resolved"]:
+            print("✅ 验证通过：所有问题已解决！")
+        else:
+            print(f"⚠️ 验证未通过：仍有 {len(remaining)} 个问题:")
+            for issue in remaining:
+                print(f"   • {issue}")
+            print("\n💡 建议尝试其他方案或联系系统管理员")
+
         return result
 
     def handle_command(self, command: str) -> Dict:

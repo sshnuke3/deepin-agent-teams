@@ -35,6 +35,8 @@ class EmailAssistant:
 
         # 已识别的邮件草稿（用于发送阶段）
         self.pending_draft: Optional[Dict] = None
+        # 多轮对话状态
+        self._clarification_pending: Optional[Dict] = None
 
     def detect_intent(self, user_input: str) -> Dict:
         """检测用户意图"""
@@ -202,7 +204,7 @@ class EmailAssistant:
 
     def run(self, user_input: str, auto_send: bool = False) -> Dict:
         """
-        执行邮件助手场景
+        执行邮件助手场景（支持多轮对话/意图澄清）
 
         Args:
             user_input: 用户指令
@@ -221,8 +223,14 @@ class EmailAssistant:
             "context": None,
             "draft": None,
             "send_result": None,
-            "steps": []
+            "steps": [],
+            "needs_clarification": False,
         }
+
+        # 处理多轮对话：如果有待回答的澄清问题
+        if self._clarification_pending:
+            result = self._continue_clarification(user_input)
+            return result
 
         # Step 1: 意图识别
         print("\n[Step 1] 意图识别...")
@@ -239,6 +247,28 @@ class EmailAssistant:
         print(f"   动作: {intent['action']}")
         print(f"   收件人: {intent['recipient'] or '待提取'}")
         print(f"   主题: {intent['topic'] or '待提取'}")
+
+        # Step 1.5: 多轮意图澄清 — 信息不全时主动追问
+        missing = []
+        if not intent["recipient"]:
+            missing.append("recipient")
+        if not intent["topic"]:
+            missing.append("topic")
+
+        if missing:
+            question = self._build_clarification_question(missing, intent)
+            print(f"\n🤔 {question}")
+            self._clarification_pending = {
+                "intent": intent,
+                "missing": missing,
+                "original_input": user_input,
+                "question": question,
+            }
+            result["needs_clarification"] = True
+            result["question"] = question
+            result["missing"] = missing
+            result["success"] = True
+            return result
 
         # Step 2: 上下文收集
         print("\n[Step 2] 上下文收集...")
@@ -292,6 +322,94 @@ class EmailAssistant:
             result["steps"].append({"step": "email_generation", "done": False, "error": str(e)})
 
         return result
+
+    def _build_clarification_question(self, missing: List[str], intent: Dict) -> str:
+        """生成澄清追问"""
+        questions = []
+        if "recipient" in missing:
+            questions.append("📧 你要发给谁？（请提供收件人姓名或邮箱）")
+        if "topic" in missing:
+            questions.append("📌 邮件主题是什么？（比如：项目进度、会议通知）")
+        if intent.get("recipient") and "topic" in missing:
+            return f"你要给 {intent['recipient']} 发邮件，具体说什么内容呢？"
+        return "\n".join(questions)
+
+    def _continue_clarification(self, user_input: str) -> Dict:
+        """处理用户对澄清问题的回答，继续邮件流程"""
+        pending = self._clarification_pending
+        self._clarification_pending = None
+
+        intent = pending["intent"]
+        missing = pending["missing"]
+
+        # 尝试从回答中提取信息
+        if "recipient" in missing:
+            # 用户回答了收件人
+            recipient = user_input.strip()
+            # 去除可能的多余词汇
+            for prefix in ["发给", "给", "是", "叫"]:
+                if recipient.startswith(prefix):
+                    recipient = recipient[len(prefix):].strip()
+            intent["recipient"] = recipient
+
+        if "topic" in missing:
+            # 用户回答了主题
+            intent["topic"] = user_input.strip()
+
+        print(f"✅ 已补充信息:")
+        print(f"   收件人: {intent.get('recipient', '未知')}")
+        print(f"   主题: {intent.get('topic', '未知')}")
+
+        # 检查是否还有缺失
+        still_missing = []
+        if not intent.get("recipient"):
+            still_missing.append("recipient")
+        if not intent.get("topic"):
+            still_missing.append("topic")
+
+        if still_missing:
+            # 继续追问
+            question = self._build_clarification_question(still_missing, intent)
+            print(f"\n🤔 {question}")
+            self._clarification_pending = {
+                "intent": intent,
+                "missing": still_missing,
+                "original_input": pending["original_input"],
+                "question": question,
+            }
+            return {
+                "success": True,
+                "needs_clarification": True,
+                "question": question,
+                "missing": still_missing,
+            }
+
+        # 信息齐全，继续正常流程
+        print("\n[继续] 信息已齐全，开始收集上下文...")
+        topic = intent.get("topic") or intent.get("recipient")
+        context = self.collect_context(topic)
+
+        try:
+            draft = self.generate_draft(context, intent.get("recipient"), intent.get("topic"))
+            self.pending_draft = draft
+
+            print(f"\n{'='*50}")
+            print(f"📧 收件人: {draft['to']}")
+            print(f"📌 主题: {draft['subject']}")
+            print(f"{'='*50}")
+            print(draft.get("body", "(空)"))
+            print(f"{'='*50}")
+            print("\n💡 回复'发送'开始发送，或'修改'调整内容")
+
+            return {
+                "success": True,
+                "draft": draft,
+                "context": context,
+                "intent": intent,
+                "needs_clarification": False,
+            }
+        except Exception as e:
+            return {"success": False, "error": str(e)}
 
     def handle_command(self, command: str) -> Dict:
         """
