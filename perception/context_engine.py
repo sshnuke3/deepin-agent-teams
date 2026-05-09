@@ -40,6 +40,8 @@ class ContextEngine:
 
     def __init__(self):
         self.last_context: Optional[UserContext] = None
+        # 行为追踪器
+        self._behavior_tracker = None
 
         # 意图触发规则
         self.intent_rules = {
@@ -247,8 +249,21 @@ class ContextEngine:
         return " | ".join(parts) if parts else "无上下文"
 
     def get_full_context(self) -> Dict:
-        """获取完整上下文字典"""
+        """获取完整上下文字典（含行为追踪+跨应用关联）"""
         ctx = self.gather_context()
+
+        # 记录行为
+        tracker = self._get_behavior_tracker()
+        if ctx.window_title:
+            tracker.check_and_record_window(ctx.window_title, ctx.active_app)
+        if ctx.clipboard_text:
+            tracker.check_and_record_clipboard(ctx.clipboard_text)
+
+        # 行为预测
+        prediction = tracker.predict_next_action()
+
+        # 跨应用上下文关联
+        cross_app = self._analyze_cross_app_context(ctx, tracker)
 
         return {
             "window": {
@@ -264,7 +279,103 @@ class ContextEngine:
                 "text": ctx.screen_text[:500] if ctx.screen_text else "",
                 "length": len(ctx.screen_text) if ctx.screen_text else 0,
             },
+            "behavior": {
+                "recent_events": tracker.get_event_sequence(5),
+                "prediction": prediction,
+            },
+            "cross_app_context": cross_app,
             "timestamp": ctx.timestamp,
+        }
+
+    def _get_behavior_tracker(self):
+        """获取行为追踪器单例"""
+        if self._behavior_tracker is None:
+            try:
+                from perception.behavior_tracker import get_tracker
+                self._behavior_tracker = get_tracker()
+            except ImportError:
+                # 降级：无行为追踪
+                class DummyTracker:
+                    def check_and_record_window(self, *a, **kw): pass
+                    def check_and_record_clipboard(self, *a, **kw): pass
+                    def predict_next_action(self): return {"prediction": None, "confidence": 0}
+                    def get_event_sequence(self, n=5): return []
+                self._behavior_tracker = DummyTracker()
+        return self._behavior_tracker
+
+    def _analyze_cross_app_context(self, ctx: UserContext, tracker) -> Dict:
+        """
+        跨应用上下文关联分析
+
+        例如：用户在浏览器搜索"Python排序" → 切换到编辑器 →
+        智能体应关联"用户可能在查资料写代码"
+        """
+        recent = tracker.get_recent_events(10)  # 最近10分钟
+        if len(recent) < 2:
+            return {"has_context": False}
+
+        # 找到最近的窗口切换序列
+        window_switches = [e for e in recent if e.event_type == "window_switch"]
+        if len(window_switches) < 2:
+            return {"has_context": False}
+
+        # 分析应用类型序列
+        app_types = []
+        for e in recent[-5:]:
+            app = e.app.lower() if e.app else ""
+            if any(k in app for k in ["browser", "firefox", "chrome", "webkit"]):
+                app_types.append("browser")
+            elif any(k in app for k in ["code", "editor", "vim", "vscode"]):
+                app_types.append("editor")
+            elif any(k in app for k in ["terminal", "konsole", "deepin-terminal"]):
+                app_types.append("terminal")
+            elif any(k in app for k in ["mail", "thunderbird", "outlook"]):
+                app_types.append("mail")
+            else:
+                app_types.append("other")
+
+        # 检测跨应用模式
+        patterns = []
+
+        # 模式：浏览器→编辑器（查资料写代码）
+        if "browser" in app_types and "editor" in app_types:
+            browser_idx = app_types.index("browser")
+            editor_idx = app_types.index("editor")
+            if browser_idx < editor_idx:
+                patterns.append({
+                    "pattern": "research_to_code",
+                    "description": "用户在浏览器查资料后切换到编辑器，可能需要代码帮助",
+                    "confidence": 0.6,
+                })
+
+        # 模式：编辑器→终端（运行代码）
+        if "editor" in app_types and "terminal" in app_types:
+            patterns.append({
+                "pattern": "code_to_run",
+                "description": "用户在编辑器写代码后切换到终端，可能在运行/调试",
+                "confidence": 0.5,
+            })
+
+        # 模式：剪贴板内容包含代码/错误信息
+        if ctx.clipboard_text:
+            clip_lower = ctx.clipboard_text.lower()
+            if any(k in clip_lower for k in ["error", "exception", "traceback", "failed"]):
+                patterns.append({
+                    "pattern": "error_in_clipboard",
+                    "description": "剪贴板包含错误信息，用户可能需要调试帮助",
+                    "confidence": 0.7,
+                })
+            elif any(k in clip_lower for k in ["def ", "class ", "import ", "function"]):
+                patterns.append({
+                    "pattern": "code_in_clipboard",
+                    "description": "剪贴板包含代码片段",
+                    "confidence": 0.5,
+                })
+
+        return {
+            "has_context": len(patterns) > 0,
+            "patterns": patterns,
+            "app_sequence": app_types[-5:],
         }
 
 
