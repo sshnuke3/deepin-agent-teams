@@ -1,0 +1,151 @@
+{
+  "project": "deepin-agent-teams",
+  "last_updated": "2026-05-10",
+  "tasks": [
+    {
+      "id": "P0.1",
+      "title": "双模型路由",
+      "status": "done",
+      "priority": 1,
+      "verify": "python3 -c 'from model_router import get_model_for_task; print(get_model_for_task(\"email\"))'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P0.2",
+      "title": "多轮对话/意图澄清",
+      "status": "done",
+      "priority": 2,
+      "verify": "检查 email_assistant.py 和 system_doctor.py 中有 _clarification_pending 字段",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P0.3",
+      "title": "修复效果验证",
+      "status": "done",
+      "priority": 3,
+      "verify": "检查 system_doctor.py 中有 verify_fix() 方法",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P1.4",
+      "title": "MCP/Skills 框架",
+      "status": "done",
+      "priority": 4,
+      "verify": "python3 -c 'from tools.mcp_adapter import get_adapter; print(len(get_adapter().tools))'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P1.6",
+      "title": "行为序列记录",
+      "status": "done",
+      "priority": 5,
+      "verify": "python3 -c 'from perception.behavior_tracker import get_tracker; print(get_tracker())'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P1.7",
+      "title": "跨应用上下文关联",
+      "status": "done",
+      "priority": 6,
+      "verify": "检查 context_engine.py 中有 _analyze_cross_app_context 方法",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P2.1",
+      "title": "冲突解决/协商机制",
+      "status": "done",
+      "priority": 7,
+      "verify": "python3 -c 'from agents.conflict_resolver import get_resolver; print(get_resolver())'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P2.2",
+      "title": "资源占用控制",
+      "status": "done",
+      "priority": 8,
+      "verify": "python3 -c 'from perception.resource_guard import get_guard; print(get_guard().get_report())'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P2.3",
+      "title": "隐私保护机制",
+      "status": "done",
+      "priority": 9,
+      "verify": "python3 -c 'from perception.privacy_guard import get_privacy_guard; g=get_privacy_guard(); print(g.has_sensitive(\"手机13800138000\"))'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P2.4",
+      "title": "deepin 控制中心 API 对接",
+      "status": "done",
+      "priority": 10,
+      "verify": "python3 -c 'from perception.deepin_dbus import get_deepin_control_status; print(get_deepin_control_status().keys())'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P3.1",
+      "title": "docs/ 知识库骨架（参考 Harness）",
+      "status": "done",
+      "priority": 11,
+      "verify": "ls docs/ARCHITECTURE.md docs/CONVENTIONS.md docs/TECH_DECISIONS.md docs/QUALITY.md",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P3.2",
+      "title": "tasks.json 任务队列",
+      "status": "done",
+      "priority": 12,
+      "verify": "python3 -c 'import json; d=json.load(open(\"tasks.json\")); print(len(d[\"tasks\"]))'",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "P3.3",
+      "title": "init.sh 环境检查",
+      "status": "done",
+      "priority": 13,
+      "verify": "bash init.sh",
+      "requires_eval": false,
+      "completed_at": "2026-05-10"
+    },
+    {
+      "id": "V1",
+      "title": "演示视频录制",
+      "status": "pending",
+      "priority": 20,
+      "verify": "视频文件存在且时长 >= 5 分钟",
+      "requires_eval": true,
+      "blocked_by": "需要 deepin 25 实体机或虚拟机",
+      "target_date": "2026-05-25"
+    },
+    {
+      "id": "V2",
+      "title": "技术报告完善",
+      "status": "pending",
+      "priority": 21,
+      "verify": "RFC.md 包含完整的架构图、场景描述、测试结果",
+      "requires_eval": true,
+      "target_date": "2026-05-30"
+    },
+    {
+      "id": "V3",
+      "title": "GitHub 仓库 README 完善",
+      "status": "pending",
+      "priority": 22,
+      "verify": "README.md 包含项目介绍、安装步骤、使用说明、截图",
+      "requires_eval": false,
+      "target_date": "2026-06-01"
+    }
+  ]
+}
