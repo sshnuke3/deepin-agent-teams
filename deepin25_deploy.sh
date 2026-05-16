@@ -13,8 +13,10 @@ echo "deepin-agent-teams 部署脚本"
 echo "============================================"
 
 # 1. 安装系统依赖
-echo "[1/6] 安装系统依赖..."
 sudo apt update -qq
+
+# python3-venv（虚拟环境必需）
+sudo apt install -y python3.12-venv python3-venv 2>/dev/null || sudo apt install -y python3-venv || true
 
 # 截图工具
 if ! command -v grim &> /dev/null && ! command -v scrot &> /dev/null; then
@@ -55,10 +57,14 @@ if [ ! -d "venv" ]; then
 fi
 source venv/bin/activate
 
-# 3. 安装Python依赖
+# pip 镜像加速
+mkdir -p ~/.config/pip
+echo -e "[global]\ntimeout = 120\nindex-url = https://pypi.tuna.tsinghua.edu.cn/simple\n" > ~/.config/pip/pip.conf
+
+# 3. 安装Python依赖（加速模式）
 echo "[3/6] 安装Python依赖..."
-pip install --upgrade pip -q
-pip install -r requirements.txt -q
+pip install --upgrade pip -q --prefer-binary
+pip install -r requirements.txt -q --prefer-binary
 
 # 4. 安装 OpenClaw（如果需要）
 echo "[4/6] 检查 OpenClaw..."
@@ -67,9 +73,9 @@ if ! command -v openclaw &> /dev/null; then
     npm install -g openclaw 2>/dev/null || true
 fi
 
-# 5. 安装 PaddleOCR（可选，用于屏幕OCR）
+# 5. 安装 PaddleOCR（可选，使用镜像加速）
 echo "[5/6] 安装 PaddleOCR（可选）..."
-pip install paddlepaddle paddleocr -q 2>/dev/null || echo "⚠️ PaddleOCR 安装失败，跳过"
+pip install paddlepaddle paddleocr -q --prefer-binary -i https://pypi.tuna.tsinghua.edu.cn/simple 2>/dev/null || echo "⚠️ PaddleOCR 安装失败，跳过"
 
 # 6. 生成结果目录
 echo "[6/6] 创建测试结果目录..."
