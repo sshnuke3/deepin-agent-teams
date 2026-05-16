@@ -130,7 +130,7 @@ def test_window_manager():
         try:
             window = get_active_window()
             write_result("window", "get_active_window", True,
-                         f"活动窗口: {window.get('title', '(无标题)')}",
+                         f"活动窗口: {window.get('title', '(无标题)') if window else '(无)'}",
                          {"window": window})
         except FileNotFoundError:
             write_result("window", "get_active_window", False,
@@ -139,9 +139,9 @@ def test_window_manager():
         except Exception as e:
             write_result("window", "get_active_window", False, str(e))
 
-        # 列出所有窗口
+        # 列出所有窗口（函数名是 get_window_list，不是 list_windows）
         try:
-            windows = list_windows()
+            windows = get_window_list()
             write_result("window", "list_windows", True,
                          f"共 {len(windows)} 个窗口",
                          {"count": len(windows), "windows": windows[:10]})
@@ -174,10 +174,11 @@ def test_system_monitor():
         for svc_name, svc_type in services_to_check:
             try:
                 status = check_service(svc_name)
-                write_result("system", f"check_service_{svc_type}", status.state != "unknown",
-                             f"{svc_name}: {status.state}",
-                             {"service": svc_name, "state": status.state,
-                              "active": status.active, "loaded": status.loaded})
+                running_state = status.running if hasattr(status, 'running') else status.active
+                write_result("system", f"check_service_{svc_type}", running_state,
+                             f"{svc_name}: {'running' if running_state else 'stopped'}",
+                             {"service": svc_name, "active": status.active,
+                              "running": running_state})
             except Exception as e:
                 write_result("system", f"check_service_{svc_type}", False, str(e))
 

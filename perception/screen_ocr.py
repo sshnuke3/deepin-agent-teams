@@ -81,7 +81,7 @@ def ocr_image(image_path: str, lang: str = "ch") -> Dict:
         return result
 
     try:
-        ocr_result = ocr.ocr(image_path, cls=True)
+        ocr_result = ocr.ocr(image_path, cls=False)
 
         if ocr_result and ocr_result[0]:
             lines = []
