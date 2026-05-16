@@ -317,6 +317,29 @@ deepin-agent-teams/
 
 ---
 
+## ✅ deepin 25 实体机验证结果（2026-05-16）
+
+**测试命令**：`python3 tests/test_perception_deepin25.py`
+
+**测试结果**：34/34 通过 ✅
+
+| 模块 | 结果 | 说明 |
+|------|------|------|
+| screen | ✅ 6/6 | 会话类型检测/屏幕信息/截图 |
+| clipboard | ✅ 2/2 | 剪贴板读取/监控器初始化 |
+| window | ✅ 2/2 | 活动窗口/窗口列表（wmctrl正常） |
+| system | ✅ 6/6 | 服务检查/音频/网络/打印机诊断 |
+| dbus | ✅ 5/5 | 检测到103个deepin服务 |
+| ocr | ✅ 3/3 | PaddleOCR可用性检测 |
+| context | ✅ 4/4 | 意图识别（email/system_fix/search） |
+| agents | ✅ 3/3 | SystemOperator/InfoCollector/ContentCreator |
+| scenarios | ✅ 2/2 | EmailAssistant/SystemDoctor |
+| orchestrator | ✅ 1/1 | ProductionExecutor |
+
+**演示视频**：已录制并加字幕（157秒）
+
+---
+
 ## 📄 License
 
 MIT License
