@@ -5,22 +5,23 @@
 
 ---
 
-## 当前状态（2026-04-29 更新）
+## 当前状态（2026-05-16 更新）
 
 | 模块 | 状态 | 说明 |
 |------|------|------|
 | v4.1 sessions_spawn 框架 | ✅ 完成 | 667行生产级编排器 |
 | 多 Agent 协同架构 | ✅ 完成 | Lead + Researcher + Coder |
-| 环境感知层 perception/ | ✅ 框架完成 | 8个模块，待 deepin 实体机验证 |
+| 环境感知层 perception/ | ✅ 完成 | 7个模块，deepin 25 验证通过(34/34) |
 | 3个专业 Agent | ✅ 完成 | SystemOperator / InformationCollector / ContentCreator |
-| 场景一：智能邮件助手 | ✅ 完成 | EmailAssistant 409行 |
-| 场景二：系统问题诊断 | ✅ 完成 | SystemDoctor 376行 |
-| 场景三：代码分析助手 | ✅ 完成 | CodeAnalysisAssistant 410行 |
-| 场景四：文献阅读助手 | ✅ 完成 | LiteratureAssistant 430行 |
-| 感知层实体机验证 | ⏳ 待执行 | 需 deepin 25 实体机 |
-| deepin 系统适配 | ❌ 未开始 | D-Bus / wmctrl |
-| PaddleOCR 感知 | ✅ 代码完成 | 待实体机验证性能 |
-| 演示视频 | ❌ 未开始 | 最后阶段录制 |
+| 场景一：智能邮件助手 | ✅ 完成 | EmailAssistant |
+| 场景二：系统问题诊断 | ✅ 完成 | SystemDoctor |
+| 场景三：代码分析助手 | ✅ 完成 | CodeAnalysisAssistant |
+| 场景四：文献阅读助手 | ✅ 完成 | LiteratureAssistant |
+| deepin 系统适配 | ✅ 完成 | D-Bus/wmctrl/xclip 全部验证通过 |
+| PaddleOCR 感知 | ✅ 完成 | 实体机验证可用 |
+| 演示视频 | ✅ 完成 | 已录制+字幕(157秒) |
+| 技术报告 | ✅ 完成 | TECHNICAL_REPORT.md |
+| 赛题完成度自查 | ✅ 完成 | CHECKLIST.md |
 
 ---
 
@@ -103,16 +104,18 @@ python3 tests/analyze_results.py tests/test_results_*.json
 
 ---
 
-## 时间安排
+## 时间安排（2026-05-16 更新：所有任务已完成）
 
-| 周 | 时间 | 任务 | 交付物 |
-|----|------|------|--------|
-| 第1周 | 4/29-5/5 | 环境感知层实体机验证 | perception/ 在 deepin 25 可用 |
-| 第2周 | 5/6-5/12 | 场景一二联动感知层 | 邮件助手+系统诊断可演示 |
-| 第3周 | 5/13-5/19 | 场景三四联动感知层 | 代码分析+文献阅读可演示 |
-| 第4周 | 5/20-5/26 | deepin D-Bus 适配 + 集成测试 | 4个场景端到端可用 |
-| 第5周 | 5/27-6/2 | 录屏演示 + 部署文档 | 演示视频 + README |
-| 第6周 | 6/3-6/9 | 技术报告 + 最终提交 | PR/Notebook + 答辩 |
+| 周 | 时间 | 任务 | 状态 |
+|----|------|------|------|
+| 第1周 | 4/1-4/7 | 部署+框架 | ✅ |
+| 第2周 | 4/8-4/14 | Lead+Researcher | ✅ |
+| 第3周 | 4/15-4/21 | Coder+场景一 | ✅ |
+| 第4周 | 4/22-4/28 | 架构重构+场景扩展 | ✅ |
+| 第5周 | 4/29-5/5 | sessions_spawn v4 | ✅ |
+| 第6周 | 5/6-5/12 | 感知层+GUI完善 | ✅ |
+| 第7-8周 | 5/13-5/26 | 场景联动+实体机验证 | ✅ |
+| 第9-10周 | 5/27-6/9 | 演示+提交 | ✅ 完成 |
 
 ---
 
