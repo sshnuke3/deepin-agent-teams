@@ -239,19 +239,76 @@ class BaseWorker:
             return {"error": str(e)}
 
     def _web_search(self, query: str) -> Dict:
-        """网页搜索（简单实现）"""
-        return {"query": query, "note": "需要配置 web search API"}
+        """网页搜索（duckduckgo html，无 key）"""
+        try:
+            import urllib.parse
+            encoded = urllib.parse.quote(query)
+            url = f"https://duckduckgo.com/html/?q={encoded}&kp=1"
+            result = subprocess.run(
+                ["curl", "-s", "-L", "--max-time", "15",
+                 "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                 "-H", "Accept-Language: zh-CN,zh;q=0.9",
+                 url],
+                capture_output=True, text=True, timeout=20
+            )
+            if result.returncode != 0:
+                return {"query": query, "error_type": "E_NETWORK",
+                        "error": f"curl failed: {result.stderr[:100]}"}
+            html = result.stdout
+            if len(html) < 500 or "captcha" in html.lower() or "cloudflare" in html.lower():
+                return {"query": query, "error_type": "E_BLOCKED",
+                        "error": "search blocked by anti-bot (CAPTCHA)", "html_len": len(html)}
+            import re
+            results = []
+            entries = re.findall(
+                r'<a class="result__a"[^>]*href="([^"]+)"[^>]*>([^<]+)</a>',
+                html
+            )
+            for url_found, title in entries[:8]:
+                clean_title = re.sub(r'<[^>]+>', '', title).strip()
+                if clean_title:
+                    results.append({"title": clean_title[:120], "url": url_found})
+            if not results:
+                return {"query": query, "error_type": "E_PARSE",
+                        "error": "no results parsed", "html_len": len(html)}
+            return {"query": query, "results": results, "count": len(results)}
+        except Exception as e:
+            return {"query": query, "error_type": "E_NETWORK", "error": str(e)}
 
     def _fetch_url(self, url: str) -> Dict:
-        """获取网页内容"""
+        """获取网页内容（结构化解析 + 错误分类）"""
         try:
             result = subprocess.run(
-                ["curl", "-s", "--max-time", "10", url],
-                capture_output=True, text=True, timeout=15
+                ["curl", "-s", "--max-time", "15",
+                 "-L", "-A", "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+                 url],
+                capture_output=True, text=True, timeout=20
             )
-            return {"url": url, "length": len(result.stdout), "preview": result.stdout[:500]}
+            if result.returncode != 0:
+                return {"url": url, "error_type": "E_NETWORK",
+                        "error": f"curl failed: {result.stderr[:100]}"}
+
+            html = result.stdout
+            # 提取 title + 正文前 500 字（简化）
+            import re
+            title_m = re.search(r'<title>([^<]+)</title>', html, re.IGNORECASE)
+            # 去除 script/style
+            html_clean = re.sub(r'<script[^>]*>[^<]*</script>', '', html, flags=re.IGNORECASE)
+            html_clean = re.sub(r'<style[^>]*>[^<]*</style>', '', html_clean, flags=re.IGNORECASE)
+            text = re.sub(r'<[^>]+>', ' ', html_clean)
+            text = re.sub(r'\s+', ' ', text).strip()
+
+            return {
+                "url": url,
+                "title": title_m.group(1).strip() if title_m else "",
+                "length": len(html),
+                "preview": text[:500],
+                "error_type": "OK",
+            }
+        except subprocess.TimeoutExpired:
+            return {"url": url, "error_type": "E_TIMEOUT", "error": "请求超时 (15s)"}
         except Exception as e:
-            return {"error": str(e)}
+            return {"url": url, "error_type": "E_NETWORK", "error": str(e)}
 
     def _generate_doc(self, content: str) -> Dict:
         """生成文档"""

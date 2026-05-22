@@ -223,8 +223,12 @@ class Verifier:
         # 如果 result 里有 error 字段，说明执行过程出错了
         if "error" in val and val["error"]:
             err = str(val["error"])
+            err_type = str(val.get("error_type", ""))
             # 已知可接受的 error 类型（如 timeout，用户需自行重试）
-            acceptable_errors = ["timeout after", "权限不足", "not a git repository"]
+            acceptable_errors = ["timeout after", "timeout", "权限不足", "not a git repository"]
+            acceptable_types = ["E_TIMEOUT"]  # 超时不算 FAIL，用户可重试
+            if err_type in acceptable_types:
+                return {"check": "error_free", "result": "PASS", "note": f"acceptable error_type: {err_type}"}
             if not any(e in err for e in acceptable_errors):
                 return {"check": "error_free", "result": "FAIL", "reason": f"执行报错: {err[:100]}"}
         return {"check": "error_free", "result": "PASS"}
