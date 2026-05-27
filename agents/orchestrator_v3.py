@@ -39,13 +39,13 @@ from registry import AgentRegistry
 from task_state_machine import TaskStateMachine, TaskState, TransitionContext, MAX_RETRY
 from verifier import Verifier
 
-ERNIE_TOKEN = "0b9320…d453"
+# 双文心模型路由（ernie-lite + ernie-3.5）
+from model_router import get_router
 
-
+# 向后兼容：保留 init_ernie，但不再直接使用
 def init_ernie():
-    import erniebot
-    erniebot.api_type = "aistudio"
-    erniebot.access_token = ERNIE_TOKEN
+    """已废弃，请使用 model_router.get_router()"""
+    pass
 
 
 class OrchestratorV3:
@@ -144,13 +144,12 @@ class OrchestratorV3:
 - 只输出 JSON，不要其他内容"""
 
         try:
-            init_ernie()
-            response = erniebot.ChatCompletion.create(
-                model="ernie-lite",
-                messages=[{"role": "user", "content": prompt}],
-            )
-            result = response.get_result() if hasattr(response, 'get_result') else str(response)
-            return json.loads(result)
+            router = get_router(verbose=self.verbose)
+            resp = router.chat(prompt, task_type="task_plan")
+            if resp["success"]:
+                return json.loads(resp["result"])
+            else:
+                raise Exception(resp.get("error", "router call failed"))
         except Exception as e:
             if self.verbose:
                 print(f"[OrchestratorV3] 分解失败: {e}")
@@ -310,12 +309,12 @@ Worker 执行结果：
 只用 Markdown 输出。"""
 
         try:
-            init_ernie()
-            response = erniebot.ChatCompletion.create(
-                model="ernie-lite",
-                messages=[{"role": "user", "content": integration_prompt}],
-            )
-            return response.get_result() if hasattr(response, 'get_result') else str(response)
+            router = get_router(verbose=self.verbose)
+            resp = router.chat(integration_prompt, task_type="report")
+            if resp["success"]:
+                return resp["result"]
+            else:
+                raise Exception(resp.get("error", "router call failed"))
         except Exception as e:
             return f"# 整合失败\n\n{e}\n\n原始结果：\n{json.dumps(results, ensure_ascii=False, indent=2)}"
 

@@ -72,7 +72,7 @@
 | 网页搜索（无需API key） | `worker_base.py` → `_web_search` | ✅ |
 | 网页内容获取 | `worker_base.py` → `_fetch_url` | ✅ |
 | MCP协议集成 | `tools/mcp_adapter.py` + OpenClaw原生 | ✅ |
-| 多模型路由（≥2款） | `agents/model_router.py` | ✅ |
+| 多模型路由（≥2款文心） | `agents/model_router.py` | ✅ |
 
 ---
 
@@ -125,7 +125,7 @@
 
 | 标准 | 状态 | 证据 |
 |------|------|------|
-| 多模态模型集成 | ✅ | PaddleOCR + ERNIE + MiniMax |
+| 多模态模型集成 | ✅ | PaddleOCR + ERNIE-lite + ERNIE-3.5 |
 | 意图识别准确率 | ✅ | 测试置信度 > 90% |
 | Agent对话能力 | ✅ | 所有 Agent 可正常初始化 |
 | 系统工具调用 | ✅ | shell/systemctl/file ops |
@@ -135,7 +135,7 @@
 | **独立 Verifier** | ✅ | Verifier ≠ 执行者 |
 | **Checkpoint 恢复** | ✅ | CheckpointManager 全部实现 |
 | **Trace 可追溯** | ✅ | /tmp/deepin_traces/ JSONL |
-| **多模型路由** | ✅ | MiniMax(主) + ERNIE(备) |
+| **双文心模型路由** | ✅ | ernie-lite(轻量) + ernie-3.5(复杂) |
 | 四大场景完整演示 | ✅ | scenarios/ 全部完成 |
 | GUI交互流畅 | ✅ | main.py --gui（悬浮球+托盘） |
 | 部署说明可复现 | ✅ | deepin25_deploy.sh |

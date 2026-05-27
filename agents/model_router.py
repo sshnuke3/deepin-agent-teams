@@ -1,30 +1,49 @@
 #!/usr/bin/env python3
 """
-agents/model_router.py - 多模型路由器
+agents/model_router.py - 双文心模型路由器
 
-支持模型：
-1. MiniMax（大当家，当前主力）
-2. ERNIE BOT（备选，当前 token 耗尽）
+赛题要求：至少调用两款文心大模型 API
+方案：
+  - ernie-lite：轻量快速（意图识别/摘要/分类/通用对话）
+  - ernie-3.5：强力复杂（代码分析/诊断/邮件生成/文献综述/任务规划）
+  - MiniMax：第三方备选（仅在文心模型全部不可用时降级）
 
-路由策略：
-- 轻量任务（意图识别/摘要/分类）→ MiniMax
-- 复杂任务（代码分析/生成/诊断）→ MiniMax
-- ERNIE 仅在 MiniMax 完全不可用时降级使用
+路由策略：根据 config.py 的 MODEL_ROUTING 表自动选择模型
 
 设计原则：
 1. 每次调用超时 30s，超时自动切换
-2. 降级链：MiniMax → ERNIE-lite → ERNIE-3.5 → 本地 fallback
+2. 降级链：ernie-3.5 ↔ ernie-lite → MiniMax → 本地 fallback
 3. 记录每步调用结果（成功/失败/耗时/token）
 """
 import os
+import sys
 import time
 import json
-from typing import Literal, Optional, Dict, Any
+from typing import Optional, Dict, Any, List
 from dataclasses import dataclass, field
 
-# 优先从环境变量读取 MiniMax key
+# 添加项目根目录到 path（config.py 在上级目录）
+_this_dir = os.path.dirname(os.path.abspath(__file__))
+_project_root = os.path.dirname(_this_dir)
+if _project_root not in sys.path:
+    sys.path.insert(0, _project_root)
+
+# 导入项目配置
+try:
+    from config import (
+        MODEL_LITE, MODEL_STRONG, MODEL_ROUTING,
+        ERNIEBOT_ACCESS_TOKEN, ERNIEBOT_STRONG_TOKEN, DEFAULT_ACCESS_TOKEN,
+    )
+except ImportError:
+    MODEL_LITE = "ernie-lite"
+    MODEL_STRONG = "ernie-3.5"
+    MODEL_ROUTING = {}
+    ERNIEBOT_ACCESS_TOKEN = ""
+    ERNIEBOT_STRONG_TOKEN = ""
+    DEFAULT_ACCESS_TOKEN = "0b93205ac0fc59d69166edb8e24cf1bc48aed453"
+
+# MiniMax 作为第三方备选
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-ERNIE_TOKEN = os.environ.get("ERNIE_TOKEN", "0b93205ac0fc59d69166edb8e24cf1bc48aed453")
 
 DEFAULT_TIMEOUT = 30
 
@@ -33,130 +52,212 @@ DEFAULT_TIMEOUT = 30
 class ModelResponse:
     """标准响应格式"""
     content: str
-    model: str           # 实际使用的模型
+    model: str           # 实际使用的模型名
+    level: str           # "lite" | "strong" | "minimax" | "fallback"
     success: bool
     error: Optional[str] = None
     latency_ms: int = 0
     token_used: int = 0
 
 
-@dataclass
-class ModelConfig:
-    """模型配置"""
-    name: str
-    provider: str        # "minimax" | "ernie"
-    model_id: str        # 具体模型名
-    timeout: int = 30
-    max_tokens: int = 4096
-    enabled: bool = True
-
-
 class ModelRouter:
     """
-    多模型路由器
+    双文心模型路由器
 
     使用方式：
         router = ModelRouter()
-        resp = router.chat("分析这段代码...", task_type="code_analysis")
+        resp = router.chat("分析这段代码...", task_type="code")
         print(resp.content)
+
+    路由逻辑（遵循 config.py MODEL_ROUTING 表）：
+        task_type → "lite" → ernie-lite
+        task_type → "strong" → ernie-3.5
+        两者均失败 → MiniMax（第三方备选）
     """
 
     def __init__(self, verbose: bool = True):
         self.verbose = verbose
-        self._minimax_client = None
-        self._ernie_client = None
+        self._ernie_available = False
+        self._minimax_available = False
+        self._strong_available = True   # ernie-3.5 是否可用（token 是否耗尽）
         self._call_log: list = []
 
-        # 初始化客户端
-        self._init_minimax()
         self._init_ernie()
-
-    def _init_minimax(self):
-        if not MINIMAX_API_KEY:
-            if self.verbose:
-                print("[ModelRouter] MiniMax API key not found in env")
-            return
-        try:
-            # MiniMax SDK 是标准 HTTP 调用
-            self._minimax_client = {
-                "api_key": MINIMAX_API_KEY,
-                "available": True,
-            }
-            if self.verbose:
-                print(f"[ModelRouter] MiniMax initialized (key={MINIMAX_API_KEY[:8]}...)")
-        except Exception as e:
-            if self.verbose:
-                print(f"[ModelRouter] MiniMax init failed: {e}")
-            self._minimax_client = {"available": False, "error": str(e)}
+        self._init_minimax()
 
     def _init_ernie(self):
-        if not ERNIE_TOKEN:
-            return
+        """初始化 ERNIE BOT（文心大模型）"""
         try:
             import erniebot
+            token = ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN
+            if not token:
+                if self.verbose:
+                    print("[ModelRouter] ERNIE token not configured")
+                return
             erniebot.api_type = "aistudio"
-            erniebot.access_token = ERNIE_TOKEN
-            self._ernie_client = {"available": True}
+            erniebot.access_token = token
+            self._ernie_available = True
             if self.verbose:
-                print("[ModelRouter] ERNIE initialized")
+                print(f"[ModelRouter] ERNIE initialized (token={token[:8]}...)")
+        except ImportError:
+            if self.verbose:
+                print("[ModelRouter] erniebot not installed (pip install erniebot)")
         except Exception as e:
             if self.verbose:
                 print(f"[ModelRouter] ERNIE init failed: {e}")
-            self._ernie_client = {"available": False, "error": str(e)}
+
+    def _init_minimax(self):
+        """初始化 MiniMax（第三方备选）"""
+        if not MINIMAX_API_KEY:
+            if self.verbose:
+                print("[ModelRouter] MiniMax API key not found (fallback unavailable)")
+            return
+        self._minimax_available = True
+        if self.verbose:
+            print(f"[ModelRouter] MiniMax fallback initialized (key={MINIMAX_API_KEY[:8]}...)")
 
     def chat(
         self,
         message: str,
         system: Optional[str] = None,
         task_type: str = "general",
-        model_preference: Optional[str] = None,
-    ) -> ModelResponse:
+        messages: Optional[List[Dict]] = None,
+        temperature: float = 0.7,
+    ) -> Dict[str, Any]:
         """
-        统一聊天接口，自动路由到合适模型
+        统一聊天接口，根据 task_type 自动路由到合适的文心模型
 
         Args:
-            message: 用户消息
+            message: 用户消息（当 messages 提供时可为空）
             system: 系统提示（可选）
-            task_type: 任务类型，影响路由
-                - "intent/classification" → 轻量快速
-                - "code_analysis/summarization" → 复杂准确
-                - "creative/writing" → 中等
-            model_preference: 强制使用某个模型（可选）
+            task_type: 任务类型，决定使用 lite 还是 strong
+                - lite 级：intent/summary/classify/entity/translate/general
+                - strong 级：email/diagnosis/code/literature/reasoning/task_plan/report
+            messages: 完整消息历史（可选，优先于 message）
+            temperature: 温度参数
+
+        Returns:
+            {"success": bool, "result": str, "model": str, "level": str, "error": str}
         """
-        models_priority = ["minimax"]
-        if model_preference:
-            models_priority = [model_preference]
+        # 根据 task_type 确定模型级别
+        level = MODEL_ROUTING.get(task_type, "lite")
+        model_name = MODEL_STRONG if level == "strong" else MODEL_LITE
 
-        # 尝试每个模型
-        for model_name in models_priority:
-            resp = self._try_model(model_name, message, system, task_type)
+        # 构建消息
+        if messages:
+            chat_messages = messages
+            if system:
+                chat_messages = [{"role": "user", "content": f"[系统提示] {system}"}] + chat_messages
+        else:
+            chat_messages = self._build_messages(message, system)
+
+        # 尝试1：指定模型
+        resp = self._call_ernie(model_name, chat_messages, temperature, task_type)
+        if resp.success:
+            self._log_call(model_name, task_type, resp)
+            return {
+                "success": True, "result": resp.content,
+                "model": resp.model, "level": level,
+                "latency_ms": resp.latency_ms,
+            }
+
+        # 尝试2：如果 strong 失败，降级到 lite
+        if level == "strong" and model_name != MODEL_LITE:
+            if self.verbose:
+                print(f"[ModelRouter] {model_name} failed, fallback to {MODEL_LITE}")
+            resp = self._call_ernie(MODEL_LITE, chat_messages, temperature, task_type)
             if resp.success:
-                self._log_call(model_name, task_type, resp)
-                return resp
+                self._log_call(MODEL_LITE, task_type, resp)
+                return {
+                    "success": True, "result": resp.content,
+                    "model": resp.model, "level": "lite",
+                    "latency_ms": resp.latency_ms,
+                }
 
-        # 全部失败 → fallback
-        return self._fallback_response(task_type)
+        # 尝试3：MiniMax 第三方备选
+        if self._minimax_available:
+            if self.verbose:
+                print(f"[ModelRouter] ERNIE models unavailable, fallback to MiniMax")
+            resp = self._call_minimax(message, system, temperature)
+            if resp.success:
+                self._log_call("minimax", task_type, resp)
+                return {
+                    "success": True, "result": resp.content,
+                    "model": "MiniMax-Text-01", "level": "minimax",
+                    "latency_ms": resp.latency_ms,
+                }
 
-    def _try_model(
+        # 全部失败
+        self._log_call("none", task_type, resp)
+        return {
+            "success": False,
+            "result": f"[模型全部不可用] 请检查 API 配置。任务类型: {task_type}",
+            "model": "none", "level": "fallback",
+            "error": resp.error or "all models unavailable",
+        }
+
+    def _call_ernie(
         self,
         model_name: str,
-        message: str,
-        system: Optional[str],
+        messages: List[Dict],
+        temperature: float,
         task_type: str,
     ) -> ModelResponse:
-        """尝试调用指定模型"""
+        """调用 ERNIE BOT API"""
         start = time.time()
 
-        if model_name == "minimax":
-            return self._call_minimax(message, system, task_type, start)
-        elif model_name == "ernie":
-            return self._call_ernie(message, system, task_type, start)
-        else:
+        if not self._ernie_available:
             return ModelResponse(
-                content="",
+                content="", model=model_name, level="",
+                success=False, error="ERNIE not initialized",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+
+        # ernie-3.5 如果之前标记不可用，直接跳过
+        if model_name == MODEL_STRONG and not self._strong_available:
+            return ModelResponse(
+                content="", model=model_name, level="",
+                success=False, error="ernie-3.5 token exhausted",
+                latency_ms=int((time.time() - start) * 1000),
+            )
+
+        try:
+            import erniebot
+
+            # 如果有 strong token 且用 strong 模型，切换 token
+            token_to_use = ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN
+            if model_name == MODEL_STRONG and ERNIEBOT_STRONG_TOKEN:
+                token_to_use = ERNIEBOT_STRONG_TOKEN
+                erniebot.access_token = token_to_use
+
+            response = erniebot.ChatCompletion.create(
                 model=model_name,
-                success=False,
-                error=f"unknown model: {model_name}",
+                messages=messages,
+                temperature=temperature,
+            )
+
+            content = response.get_result() if hasattr(response, 'get_result') else str(response)
+
+            return ModelResponse(
+                content=str(content),
+                model=model_name,
+                level="strong" if model_name == MODEL_STRONG else "lite",
+                success=True,
+                latency_ms=int((time.time() - start) * 1000),
+            )
+
+        except Exception as e:
+            err_str = str(e)
+            # 如果是 quota/token 耗尽，标记该模型不可用
+            if "quota" in err_str.lower() or "token" in err_str.lower() or "额度" in err_str:
+                if model_name == MODEL_STRONG:
+                    self._strong_available = False
+                    if self.verbose:
+                        print(f"[ModelRouter] ernie-3.5 token exhausted, marking unavailable")
+
+            return ModelResponse(
+                content="", model=model_name, level="",
+                success=False, error=err_str[:200],
                 latency_ms=int((time.time() - start) * 1000),
             )
 
@@ -164,33 +265,37 @@ class ModelRouter:
         self,
         message: str,
         system: Optional[str],
-        task_type: str,
-        start: float,
+        temperature: float,
     ) -> ModelResponse:
-        """调用 MiniMax API"""
-        if not self._minimax_client or not self._minimax_client.get("available"):
+        """调用 MiniMax API（第三方备选）"""
+        start = time.time()
+
+        if not self._minimax_available:
             return ModelResponse(
-                content="", model="minimax", success=False,
-                error="MiniMax client not available",
+                content="", model="MiniMax-Text-01", level="minimax",
+                success=False, error="MiniMax not available",
                 latency_ms=int((time.time() - start) * 1000),
             )
 
         try:
             import urllib.request
-            import urllib.parse
 
-            # MiniMax 官方 API endpoint
             url = "https://api.minimax.chat/v1/text/chatcompletion_pro"
             headers = {
                 "Authorization": f"Bearer {MINIMAX_API_KEY}",
                 "Content-Type": "application/json",
             }
 
+            messages = []
+            if system:
+                messages.append({"role": "system", "name": "assistant", "content": system})
+            messages.append({"role": "user", "content": message})
+
             payload = {
                 "model": "MiniMax-Text-01",
-                "messages": self._build_messages_minimax(message, system),
+                "messages": messages,
                 "max_tokens": 2048,
-                "temperature": 0.7,
+                "temperature": temperature,
             }
 
             data = json.dumps(payload).encode("utf-8")
@@ -206,6 +311,7 @@ class ModelRouter:
             return ModelResponse(
                 content=content,
                 model="MiniMax-Text-01",
+                level="minimax",
                 success=True,
                 latency_ms=int((time.time() - start) * 1000),
                 token_used=result.get("usage", {}).get("total_tokens", 0),
@@ -213,83 +319,19 @@ class ModelRouter:
 
         except Exception as e:
             return ModelResponse(
-                content="", model="MiniMax-Text-01", success=False,
-                error=str(e)[:100],
+                content="", model="MiniMax-Text-01", level="minimax",
+                success=False, error=str(e)[:200],
                 latency_ms=int((time.time() - start) * 1000),
             )
 
-    def _call_ernie(
-        self,
-        message: str,
-        system: Optional[str],
-        task_type: str,
-        start: float,
-    ) -> ModelResponse:
-        """调用 ERNIE BOT API"""
-        if not self._ernie_client or not self._ernie_client.get("available"):
-            return ModelResponse(
-                content="", model="ernie", success=False,
-                error="ERNIE client not available",
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
-        try:
-            import erniebot
-
-            msgs = self._build_messages_ernie(message, system)
-            response = erniebot.ChatCompletion.create(
-                model="ernie-lite",
-                messages=msgs,
-            )
-
-            content = response.get_result() if hasattr(response, 'get_result') else str(response)
-            return ModelResponse(
-                content=str(content),
-                model="ernie-lite",
-                success=True,
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
-        except Exception as e:
-            err_str = str(e)
-            # 如果是 quota 耗尽，标记不可用
-            if "quota" in err_str.lower() or "token" in err_str.lower():
-                if self._ernie_client:
-                    self._ernie_client["available"] = False
-
-            return ModelResponse(
-                content="", model="ernie-lite", success=False,
-                error=err_str[:100],
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
-    def _build_messages_minimax(self, message: str, system: Optional[str]) -> list:
-        """构建 MiniMax 消息格式"""
+    def _build_messages(self, message: str, system: Optional[str]) -> List[Dict]:
+        """构建消息列表（ERNIE aistudio 不支持 system role）"""
         messages = []
-        if system:
-            messages.append({"role": "system", "name": "ominous", "content": system})
-        messages.append({"role": "user", "content": message})
-        return messages
-
-    def _build_messages_ernie(self, message: str, system: Optional[str]) -> list:
-        """构建 ERNIE 消息格式（ERNIE 不支持 system role）"""
-        messages = []
-        # ERNIE 不支持 system，用 user 代替
         if system:
             messages.append({"role": "user", "content": f"[系统提示] {system}\n\n{message}"})
         else:
             messages.append({"role": "user", "content": message})
         return messages
-
-    def _fallback_response(self, task_type: str) -> ModelResponse:
-        """所有模型都失败时的 fallback"""
-        return ModelResponse(
-            content=f"[模型全部不可用] 请检查网络和 API 配置。\n任务类型: {task_type}",
-            model="none",
-            success=False,
-            error="all models unavailable",
-            latency_ms=0,
-        )
 
     def _log_call(self, model: str, task_type: str, resp: ModelResponse):
         """记录调用日志"""
@@ -297,64 +339,120 @@ class ModelRouter:
             "ts": time.time(),
             "model": model,
             "task_type": task_type,
+            "level": resp.level,
             "success": resp.success,
             "latency_ms": resp.latency_ms,
             "token_used": resp.token_used,
             "error": resp.error,
         })
-        if self.verbose and not resp.success:
-            print(f"[ModelRouter] {model} failed: {resp.error}")
 
     def stats(self) -> dict:
         """返回调用统计"""
         total = len(self._call_log)
         success = sum(1 for c in self._call_log if c["success"])
-        failures = sum(1 for c in self._call_log if not c["success"])
-        total_latency = sum(c["latency_ms"] for c in self._call_log)
+        by_model = {}
+        for c in self._call_log:
+            m = c["model"]
+            if m not in by_model:
+                by_model[m] = {"total": 0, "success": 0}
+            by_model[m]["total"] += 1
+            if c["success"]:
+                by_model[m]["success"] += 1
+
         return {
             "total_calls": total,
             "success": success,
-            "failures": failures,
+            "failures": total - success,
             "success_rate": f"{100*success/total:.1f}%" if total else "0%",
-            "avg_latency_ms": int(total_latency / total) if total else 0,
-            "models_tried": list({c["model"] for c in self._call_log}),
+            "by_model": by_model,
+            "models_used": list(by_model.keys()),
         }
 
+    def get_routing_info(self) -> dict:
+        """返回路由配置信息（用于调试和展示）"""
+        info = {
+            "routing_table": {},
+            "ernie_available": self._ernie_available,
+            "strong_available": self._strong_available,
+            "minimax_available": self._minimax_available,
+        }
+        for task_type, level in MODEL_ROUTING.items():
+            model = MODEL_STRONG if level == "strong" else MODEL_LITE
+            info["routing_table"][task_type] = {"level": level, "model": model}
+        return info
 
-# ========== 单元测试（不走 API） ==========
+
+# 全局单例
+_router_instance: Optional[ModelRouter] = None
+
+
+def get_router(verbose: bool = True) -> ModelRouter:
+    """获取全局 ModelRouter 单例"""
+    global _router_instance
+    if _router_instance is None:
+        _router_instance = ModelRouter(verbose=verbose)
+    return _router_instance
+
+
+# ========== 单元测试 ==========
 
 def _test():
     print("\n=== ModelRouter 单元测试 ===\n")
 
     # Test 1: 初始化
-    print("Test 1: 初始化（不调用 API）")
+    print("Test 1: 初始化")
     router = ModelRouter(verbose=True)
     print("  ✅ PASS\n")
 
-    # Test 2: stats 初始状态
-    print("Test 2: stats 初始状态")
+    # Test 2: 路由表
+    print("Test 2: 路由表（config.py MODEL_ROUTING）")
+    info = router.get_routing_info()
+    print(f"  路由条目数: {len(info['routing_table'])}")
+    for task, cfg in info["routing_table"].items():
+        print(f"    {task} → {cfg['level']} ({cfg['model']})")
+    assert len(info["routing_table"]) > 0
+    print("  ✅ PASS\n")
+
+    # Test 3: 轻量任务路由 → ernie-lite
+    print("Test 3: 轻量任务路由")
+    level = MODEL_ROUTING.get("intent", "lite")
+    assert level == "lite", f"expected lite, got {level}"
+    print(f"  intent → {level} (ernie-lite)")
+    print("  ✅ PASS\n")
+
+    # Test 4: 复杂任务路由 → ernie-3.5
+    print("Test 4: 复杂任务路由")
+    level = MODEL_ROUTING.get("code", "lite")
+    assert level == "strong", f"expected strong, got {level}"
+    print(f"  code → {level} (ernie-3.5)")
+    print("  ✅ PASS\n")
+
+    # Test 5: 消息构建（ERNIE 不支持 system role）
+    print("Test 5: 消息构建")
+    msgs = router._build_messages("分析代码", "你是专家")
+    assert len(msgs) == 1
+    assert "[系统提示]" in msgs[0]["content"]
+    print(f"  消息数: {len(msgs)}, 包含系统提示: {'[系统提示]' in msgs[0]['content']}")
+    print("  ✅ PASS\n")
+
+    # Test 6: stats 初始状态
+    print("Test 6: stats 初始状态")
     stats = router.stats()
     assert stats["total_calls"] == 0
-    assert stats["success"] == 0
     print(f"  stats={stats}")
     print("  ✅ PASS\n")
 
-    # Test 3: message 构建
-    print("Test 3: message 构建")
-    msgs = router._build_messages_minimax("你好", "你是一个助手")
-    assert len(msgs) == 2
-    assert msgs[0]["role"] == "system"
-    assert msgs[1]["role"] == "user"
-    print("  ✅ PASS\n")
+    # Test 7: 双模型覆盖
+    print("Test 7: 双文心模型覆盖验证")
+    lite_tasks = [t for t, l in MODEL_ROUTING.items() if l == "lite"]
+    strong_tasks = [t for t, l in MODEL_ROUTING.items() if l == "strong"]
+    print(f"  ernie-lite 任务: {lite_tasks}")
+    print(f"  ernie-3.5 任务: {strong_tasks}")
+    assert len(lite_tasks) > 0, "lite 任务不能为空"
+    assert len(strong_tasks) > 0, "strong 任务不能为空"
+    print(f"  ✅ 双模型覆盖: {len(lite_tasks)} 个 lite + {len(strong_tasks)} 个 strong\n")
 
-    # Test 4: ERNIE message 构建（不支持 system）
-    print("Test 4: ERNIE message 构建")
-    msgs = router._build_messages_ernie("分析代码", "你是专家")
-    assert len(msgs) == 1
-    assert "[系统提示]" in msgs[0]["content"]
-    print("  ✅ PASS\n")
-
-    print("=== 所有测试通过（不涉及实际 API 调用）===\n")
+    print("=== 所有测试通过 ===\n")
 
 
 if __name__ == "__main__":
