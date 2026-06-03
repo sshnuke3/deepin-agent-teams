@@ -1,3 +1,11 @@
-erniebot>=0.5.9
-python-dotenv>=1.0.0
-PyQt5>=5.15.0
+# deepin-agent-teams MCP 版依赖
+# 
+# 核心依赖（原有）
+erniebot
+python-dotenv
+tiktoken
+
+# MCP 协议依赖（新增）
+# 注意：mcp_servers/mcp_protocol.py 是纯 Python 实现，不需要 mcp SDK
+# 如果需要使用官方 MCP SDK，取消下面的注释：
+# mcp>=1.0.0
