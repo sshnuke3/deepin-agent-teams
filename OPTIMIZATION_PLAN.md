@@ -135,6 +135,67 @@ Fallback（返回错误信息）
 
 ---
 
+## P3 · 工具解耦（MCP 协议）✅
+
+> 基于 Agent 工程方法论评估（Build✅ Connect❌ Scale⚠️ Verify✅）
+> **状态：全部完成 ✅（2026-06-03）**
+
+### P3-1：ToolRegistry 统一工具注册表 ✅
+
+**实现**：`tools/tool_registry.py`
+
+- ✅ 统一注册接口：本地 handler + 远程 MCP Server
+- ✅ 自动生成 LLM Function Calling 格式工具列表
+- ✅ 调用历史可追溯（含来源、耗时、成功/失败）
+- ✅ 危险操作确认机制
+- ✅ 单元测试：8/8 通过
+
+### P3-2：轻量 MCP 协议实现 ✅
+
+**实现**：`mcp_servers/mcp_protocol.py`
+
+- ✅ 纯 Python 实现，无需 `mcp` SDK（PEP 668 兼容）
+- ✅ JSON-RPC over stdio，与官方 MCP 协议一致
+- ✅ MCPServer：装饰器注册工具，自动处理请求
+- ✅ MCPClient：连接子进程，自动发现和调用工具
+- ✅ 支持 initialize / tools/list / tools/call / ping
+
+### P3-3：内置 MCP Server ✅
+
+| Server | 文件 | 工具 | 说明 |
+|--------|------|------|------|
+| model-service | `mcp_servers/model_server.py` | chat_completion, route_model, list_models | 封装 erniebot 双模型路由 |
+| file-service | `mcp_servers/file_server.py` | read_file, write_file, list_directory, search_files, file_exists | 文件操作 |
+| system-service | `mcp_servers/system_server.py` | exec_command, system_info, check_process, git_status, install_package | 系统操作 |
+
+每个 Server 可独立运行：`python3 mcp_servers/xxx_server.py --test`
+
+### P3-4：OrchestratorV4 MCP 驱动编排器 ✅
+
+**实现**：`agents/orchestrator_v4.py`
+
+- ✅ 自动扫描并连接所有内置 MCP Server
+- ✅ 通过 ToolRegistry 统一调用，零硬编码
+- ✅ 加新工具 = 写 MCP Server + `connect_server()` 一行代码
+- ✅ 复用状态机 + Verifier 验收机制
+- ✅ 集成测试：8/8 通过
+
+### 架构变化
+
+```
+Before（v3）：
+orchestrator → 硬编码 → model_router
+            → 硬编码 → file ops
+            → 硬编码 → shell
+
+After（v4）：
+orchestrator → ToolRegistry → MCP Client ──→ model-service
+                             → MCP Client ──→ file-service
+                             → MCP Client ──→ system-service
+```
+
+---
+
 ## 执行结果总览
 
 | 阶段 | 内容 | 状态 | 测试 |
@@ -142,6 +203,7 @@ Fallback（返回错误信息）
 | **P0** | 状态机引擎 + 独立 Verifier + orchestrator_v3 | ✅ | 11/11 |
 | **P1** | web_search 实现 + CheckpointManager + trace 分析 | ✅ | 12/12 |
 | **P2** | 多模型路由 + 能力分析 + 文档同步 | ✅ | 冒烟 |
+| **P3** | MCP 工具解耦 + orchestrator_v4 + ToolRegistry | ✅ | 16/16 |
 
 **所有代码已推送 GitHub**：`github.com/sshnuke3/deepin-agent-teams`
 

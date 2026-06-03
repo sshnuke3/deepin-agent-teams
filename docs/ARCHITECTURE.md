@@ -19,11 +19,19 @@ deepin-agent-teams/
 │   ├── task_state_machine.py  # 任务状态机引擎（P0-1）
 │   ├── verifier.py            # 独立质检员（P0-2）
 │   ├── orchestrator_v3.py    # 状态机+Verifier 驱动的编排器
+│   ├── orchestrator_v4.py    # MCP 驱动的编排器（P3）
 │   ├── worker_base.py        # 通用 Worker 基类（14 种能力）
 │   ├── worker_v2.py          # Worker 主循环
 │   └── lead.py               # Lead Agent
 │
+├── mcp_servers/               # MCP 工具服务层（P3）
+│   ├── mcp_protocol.py       # 轻量 MCP 协议实现（纯 Python）
+│   ├── model_server.py       # 模型 MCP Server
+│   ├── file_server.py        # 文件 MCP Server
+│   └── system_server.py      # 系统 MCP Server
+│
 ├── tools/
+│   ├── tool_registry.py      # 统一工具注册表（P3）
 │   ├── checkpoint_manager.py # 检查点管理（失败恢复）
 │   ├── analyze_traces.py     # Trace 分析工具
 │   └── analyze_capabilities.py # 能力正交化分析
@@ -33,6 +41,10 @@ deepin-agent-teams/
 │   ├── CONVENTIONS.md        # 代码规范
 │   ├── TECH_DECISIONS.md     # 技术选型决策
 │   └── QUALITY.md            # 质量标准
+│
+├── tests/
+│   ├── test_tool_registry.py  # ToolRegistry 单元测试（8/8）
+│   └── test_mcp_integration.py # MCP 集成测试（8/8）
 │
 └── skills/                    # （预留）技能扩展目录
 ```

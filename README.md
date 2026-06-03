@@ -52,9 +52,21 @@
                               │
                               ▼
 ┌─────────────────────────────────────────────────────────────────┐
+│                  🔌 MCP 工具层（mcp_servers/）                   │
+│                                                                 │
+│  OrchestratorV4 ──MCP Client──→ model-service  (模型调用)       │
+│                 ──MCP Client──→ file-service   (文件操作)       │
+│                 ──MCP Client──→ system-service (系统操作)       │
+│                 ──MCP Client──→ [自定义Server] (零侵入扩展)     │
+│                                                                 │
+│  协议：JSON-RPC over stdio · 纯 Python 实现 · 无外部依赖        │
+└─────────────────────────────────────────────────────────────────┘
+                              │
+                              ▼
+┌─────────────────────────────────────────────────────────────────┐
 │                    多智能体协作层（agents/）                      │
 │                                                                 │
-│  Lead Agent ← 任务拆解 → OrchestratorV3 ← 编排 → Worker 池      │
+│  Lead Agent ← 任务拆解 → OrchestratorV4 ← 编排 → Worker 池      │
 │                                 ↓                                │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐          │
 │  │  researcher  │  │     coder    │  │   general    │          │
@@ -127,21 +139,30 @@ deepin-agent-teams/
 ├── agents/
 │   ├── task_state_machine.py  # 状态机引擎（P0-1）
 │   ├── verifier.py            # 独立质检员（P0-2）
-│   ├── orchestrator_v3.py     # 编排器（状态机+Verifier驱动）
+│   ├── orchestrator_v3.py     # 编排器 v3（状态机+Verifier）
+│   ├── orchestrator_v4.py     # 编排器 v4（MCP 驱动，新增）
 │   ├── model_router.py        # 多模型路由（MiniMax + ERNIE）
 │   ├── worker_base.py         # Worker 基类（14 种能力）
 │   ├── worker_v2.py           # Worker 主循环
 │   ├── registry.py            # Agent 注册中心
 │   └── lead.py / researcher.py / coder.py  # 各型 Agent
-├── perception/                # 环境感知层（截图/OCR/剪贴板/D-Bus）
-├── scenarios/                 # 四大场景（邮件/诊断/代码/文献）
-├── gui/                       # PyQt5 交互界面
+├── mcp_servers/               # MCP 工具服务（新增）
+│   ├── mcp_protocol.py        # 轻量 MCP 协议实现（纯 Python）
+│   ├── model_server.py        # 模型 MCP Server
+│   ├── file_server.py         # 文件 MCP Server
+│   └── system_server.py       # 系统 MCP Server
 ├── tools/
+│   ├── tool_registry.py       # 统一工具注册表（新增）
 │   ├── checkpoint_manager.py  # 检查点管理
 │   ├── analyze_traces.py      # Trace 分析工具
 │   └── analyze_capabilities.py # 能力正交化分析
+├── perception/                # 环境感知层（截图/OCR/剪贴板/D-Bus）
+├── scenarios/                 # 四大场景（邮件/诊断/代码/文献）
+├── gui/                       # PyQt5 交互界面
 ├── docs/                      # 架构/技术/质量文档
 ├── tests/                     # 测试脚本
+│   ├── test_tool_registry.py  # ToolRegistry 单元测试（8/8）
+│   └── test_mcp_integration.py # MCP 集成测试（8/8）
 └── main.py                    # CLI/GUI 入口
 ```
 
@@ -149,30 +170,52 @@ deepin-agent-teams/
 
 ## 🚀 快速开始
 
-### 运行编排器
+### 运行编排器（v3 — 原版）
 
 ```bash
 cd ~/.openclaw/workspace/deepin-agent-teams
 python3 agents/orchestrator_v3.py
 ```
 
+### 运行编排器（v4 — MCP 驱动）
+
+```bash
+cd ~/.openclaw/workspace/deepin-agent-teams
+python3 agents/orchestrator_v4.py
+```
+
 ### 作为模块调用
 
 ```python
-from agents.orchestrator_v3 import OrchestratorV3
+# v4（推荐）
+from agents.orchestrator_v4 import OrchestratorV4
 
-orch = OrchestratorV3(verbose=True)
+orch = OrchestratorV4(verbose=True)
+orch.auto_connect_servers()  # 自动连接所有 MCP Server
 result = orch.run(
     "分析 deepin-agent-teams 项目的代码结构",
     project_path="/root/.openclaw/workspace/deepin-agent-teams"
 )
 print(result["final_report"])
+
+# v3（兼容）
+from agents.orchestrator_v3 import OrchestratorV3
+orch = OrchestratorV3(verbose=True)
 ```
 
 ### 启动 GUI
 
 ```bash
 python3 main.py --gui
+```
+
+### 单独测试 MCP Server
+
+```bash
+# 每个 Server 可独立运行和测试
+python3 mcp_servers/model_server.py --test
+python3 mcp_servers/file_server.py --test
+python3 mcp_servers/system_server.py --test
 ```
 
 ---
@@ -191,6 +234,12 @@ python3 tools/checkpoint_manager.py
 
 # Trace 分析
 python3 tools/analyze_traces.py
+
+# ToolRegistry 单元测试（8/8）
+python3 tests/test_tool_registry.py
+
+# MCP 集成测试（8/8）
+python3 tests/test_mcp_integration.py
 ```
 
 ---
@@ -206,6 +255,7 @@ python3 tools/analyze_traces.py
 | 任务可追溯（trace） | `/tmp/deepin_traces/*.jsonl` | ✅ |
 | 检查点恢复（失败不整体重来） | `checkpoint_manager.py` | ✅ |
 | 多智能体协作 | `orchestrator_v3.py` + `sessions_spawn` | ✅ |
+| MCP 工具解耦 | `orchestrator_v4.py` + `mcp_servers/` + `tool_registry.py` | ✅ |
 | 四大场景完整 | `scenarios/` | ✅ |
 | GUI 交互 | `main.py --gui` | ✅ |
 | 部署文档可复现 | `deepin25_deploy.sh` | ✅ |
@@ -228,6 +278,7 @@ python3 tools/analyze_traces.py
 |------|------|------|
 | 主语言 | Python 3 | — |
 | 大模型 | MiniMax（主）+ ERNIE（备） | `model_router.py` |
+| 工具协议 | MCP（JSON-RPC over stdio） | `mcp_servers/mcp_protocol.py` |
 | OCR | PaddleOCR | 中文识别 |
 | GUI | PyQt5 | deepin 25 适配 |
 | 文件锁 | fcntl.flock | 多进程安全 |

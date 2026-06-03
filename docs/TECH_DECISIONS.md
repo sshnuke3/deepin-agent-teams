@@ -100,3 +100,29 @@
 **限制：** 可能被 CAPTCHA/cloudflare 拦截（标记为 E_BLOCKED，不算 FAIL）
 **解析方式：** 正则提取 `<a class="result__a">` 标题和链接
 **备选：** 如果 duckduckgo 也被拦，考虑 Bing 搜索 API 或 SearXNG
+
+## MCP 工具协议（mcp_protocol.py）
+
+**选型原因：** 解耦工具层，实现「加工具不改 Agent」。
+**决策时间：** 2026-06-03
+
+**方案对比：**
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| 硬编码（v3） | 简单直接 | 工具和 Agent 强耦合 |
+| 官方 MCP SDK | 协议完整 | PEP 668 限制，无法 pip install |
+| **纯 Python 实现（选用）** | 零依赖、协议兼容、深信适配 | 需自行实现 JSON-RPC |
+
+**实现要点：**
+- JSON-RPC over stdio，与官方 MCP 协议一致
+- MCPServer：装饰器注册工具，自动处理 initialize/list/call
+- MCPClient：连接子进程，自动发现和调用工具
+- ToolRegistry：统一工具注册表，支持本地 + MCP 两种来源
+
+**核心收益：**
+- 加新工具 = 写 MCP Server + `connect_server()` 一行代码
+- 每个 Server 可独立运行、独立测试
+- 工具列表自动生成 LLM Function Calling 格式
+
+**相关文件：** `mcp_servers/mcp_protocol.py`、`tools/tool_registry.py`、`agents/orchestrator_v4.py`

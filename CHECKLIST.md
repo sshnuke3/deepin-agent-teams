@@ -72,6 +72,7 @@
 | 网页搜索（无需API key） | `worker_base.py` → `_web_search` | ✅ |
 | 网页内容获取 | `worker_base.py` → `_fetch_url` | ✅ |
 | MCP协议集成 | `tools/mcp_adapter.py` + OpenClaw原生 | ✅ |
+| **MCP工具解耦（v4）** | `mcp_servers/` + `tool_registry.py` + `orchestrator_v4.py` | ✅ |
 | 多模型路由（≥2款文心） | `agents/model_router.py` | ✅ |
 
 ---
@@ -164,6 +165,8 @@
 | verifier.py | 6 | ✅ 6/6 | agents/verifier.py |
 | checkpoint_manager.py | 6 | ✅ 6/6 | tools/checkpoint_manager.py |
 | model_router.py | 4 | ✅ 4/4 | agents/model_router.py |
+| tool_registry.py | 8 | ✅ 8/8 | tests/test_tool_registry.py |
+| mcp_integration | 8 | ✅ 8/8 | tests/test_mcp_integration.py |
 
 ---
 

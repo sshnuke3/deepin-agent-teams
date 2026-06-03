@@ -703,6 +703,23 @@ python3 tests/test_perception_deepin25.py
 - **控制中心 API**：系统配置和设置接口
 - **桌面环境特性**：窗口管理、剪贴板监控等
 
+### 8.5 MCP 工具解耦架构（v4）
+
+基于 Agent 工程方法论评估（Build✅ Connect❌ Scale⚠️ Verify✅），发现工具层硬编码是最大短板。创新性地实现了：
+
+- **轻量 MCP 协议**：纯 Python 实现 JSON-RPC over stdio，无需官方 MCP SDK，兼容 PEP 668
+- **ToolRegistry 统一注册表**：本地 handler 和远程 MCP Server 两种来源，调用方完全不感知底层差异
+- **零侵入扩展**：加新工具 = 写 MCP Server 文件 + connect_server() 一行代码，不改 orchestrator
+- **OrchestratorV4**：自动扫描并连接所有内置 MCP Server，工具列表自动生成 LLM Function Calling 格式
+
+架构变化：
+```
+Before（v3）：orchestrator → 硬编码 → model_router / file ops / shell
+After（v4）：orchestrator → ToolRegistry → MCP Client → model-service
+                                                → MCP Client → file-service
+                                                → MCP Client → system-service
+```
+
 ---
 
 ## 九、总结与展望
@@ -711,8 +728,10 @@ python3 tests/test_perception_deepin25.py
 
 1. **完整的多智能体协作系统**：实现了 SystemOperator、InformationCollector、ContentCreator 三个专业智能体的协作
 2. **全面的环境感知能力**：7个感知模块覆盖屏幕、剪贴板、窗口、系统、D-Bus、OCR、上下文
-3. **两个可演示的核心场景**：智能邮件助手和系统问题诊断
-4. **deepin 25 实体机验证**：34/34 测试项通过
+3. **三角架构创新**：状态机引擎 + 独立 Verifier + Worker 池，所有停止条件代码写死
+4. **MCP 工具解耦**：v4 编排器通过 MCP 协议标准化工具连接，加工具零侵入
+5. **deepin 25 实体机验证**：34/34 测试项通过
+6. **测试覆盖**：39/39 单元测试通过（状态机 5 + Verifier 6 + Checkpoint 6 + ModelRouter 4 + ToolRegistry 8 + MCP 8 + 其他 2）
 
 ### 9.2 未来工作
 
@@ -720,6 +739,8 @@ python3 tests/test_perception_deepin25.py
 2. **增强感知**：支持 Wayland 会话、PaddleOCR 性能优化
 3. **隐私保护**：增加敏感操作确认、权限控制
 4. **GUI 完善**：悬浮球交互优化、系统托盘集成
+5. **多 Agent 协作模式**：引入辩论模式、群组模式等高级协作方式
+6. **可观测性**：集成 OpenTelemetry，实现全链路 Trace
 
 ---
 
