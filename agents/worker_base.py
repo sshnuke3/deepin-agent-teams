@@ -10,8 +10,18 @@ import time
 import subprocess
 import glob
 import hashlib
-from typing import Dict, List, Any, Optional
+from typing import Dict, List, Any, Optional, Tuple
 from registry import AgentRegistry, RESULT_DIR
+
+# 安全配置
+from security_config import (
+    is_tool_allowed,
+    check_dangerous_operation,
+    ConfirmRequest,
+    ConfirmResponse,
+    ConfirmAction,
+    DANGEROUS_TOOLS,
+)
 
 
 class BaseWorker:
@@ -32,6 +42,10 @@ class BaseWorker:
         self.registry = AgentRegistry()
         self.current_task = None
 
+        # 安全组件（可选注入）
+        self._state_machine = None  # 由 Orchestrator 注入
+        self._confirm_callback = None  # 确认回调函数（用于 Human-in-Loop）
+
     def register(self) -> str:
         """注册到中心"""
         self.agent_id = self.registry.register(
@@ -49,6 +63,14 @@ class BaseWorker:
         """发送心跳"""
         self.registry.heartbeat()
 
+    def set_state_machine(self, sm):
+        """注入状态机（由 Orchestrator 调用）"""
+        self._state_machine = sm
+
+    def set_confirm_callback(self, callback):
+        """注入确认回调函数（用于 Human-in-Loop 四值确认）"""
+        self._confirm_callback = callback
+
     def capabilities_match(self, task: Dict) -> bool:
         """检查自己是否能处理这个任务"""
         needed = task.get("capabilities_needed", [])
@@ -64,9 +86,48 @@ class BaseWorker:
 
     def execute_capability(self, capability: str, params: Dict) -> Any:
         """
-        根据能力自主选择执行模块
-        这就是"自主分工"的核心 - 不是被分配，而是自己判断用哪个能力
+        根据能力自主选择执行模块（安全增强版）
+
+        安全机制：
+        1. 工具白名单校验 — 检查当前状态/阶段是否允许使用该能力
+        2. 危险操作确认 — shell_executor 等高危工具需经过 Confirming 守卫
+        3. Token 记录 — 每次执行后记录 Token 消耗（由调用方传入）
         """
+        # ---- 安全检查 1: 工具白名单 ----
+        if self._state_machine:
+            allowed, reason = self._state_machine.can_use_tool(capability)
+            if not allowed:
+                print(f"[Worker] ⚠️ 安全拦截: {reason}")
+                return {"error": f"安全拦截: {reason}", "error_type": "E_TOOL_BLOCKED"}
+
+        # ---- 安全检查 2: 危险操作确认 ----
+        if capability in DANGEROUS_TOOLS:
+            command = params.get("command", "")
+            if command and self._state_machine:
+                confirm_req = self._state_machine.request_confirmation(capability, command)
+                if confirm_req:
+                    # 需要用户确认
+                    if self._confirm_callback:
+                        response = self._confirm_callback(confirm_req)
+                        self._state_machine.record_confirmation(confirm_req, response)
+                        if response.action in (ConfirmAction.DENY, ConfirmAction.EXIT):
+                            print(f"[Worker] ⚠️ 用户拒绝危险操作: {command[:60]}")
+                            return {"error": f"用户拒绝危险操作: {confirm_req.description}", "error_type": "E_USER_DENIED"}
+                    else:
+                        # 没有回调函数，阻止执行
+                        print(f"[Worker] ⚠️ 危险操作需确认但无回调: {command[:60]}")
+                        return {
+                            "error": f"危险操作需确认: [{confirm_req.level}] {confirm_req.description}",
+                            "error_type": "E_CONFIRM_REQUIRED",
+                            "confirm_request": {
+                                "tool": capability,
+                                "command": command,
+                                "level": confirm_req.level,
+                                "description": confirm_req.description,
+                            },
+                        }
+
+        # ---- 执行能力 ----
         capability_map = {
             # 文件能力
             "file_reader": lambda p: self._read_file(p.get("path")),
@@ -95,7 +156,15 @@ class BaseWorker:
 
         handler = capability_map.get(capability)
         if handler:
-            return handler(params)
+            result = handler(params)
+            # 在结果中附加安全元信息（供 Verifier 使用）
+            if isinstance(result, dict) and self._state_machine:
+                result["_security"] = {
+                    "state": self._state_machine.state.value,
+                    "phase": self._state_machine.current_phase,
+                    "cumulative_tokens": self._state_machine.token_tracker.total_tokens,
+                }
+            return result
         return {"error": f"未知能力: {capability}"}
 
     # ========== 能力实现 ==========

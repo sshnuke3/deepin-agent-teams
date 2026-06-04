@@ -19,6 +19,15 @@ from dataclasses import dataclass, field
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(AGENT_DIR)
 
+# 安全配置
+from security_config import (
+    is_tool_allowed,
+    DANGEROUS_TOOLS,
+    check_dangerous_operation,
+    STATE_TOOL_WHITELIST,
+    RUNNING_PHASE_TOOLS,
+)
+
 
 @dataclass
 class Verdict:
@@ -83,6 +92,15 @@ class Verifier:
 
         # Check 4: 无错误标记
         checks.append(self._check_error_free(worker_result))
+
+        # Check 5: 工具白名单合规（安全增强）
+        checks.append(self._check_tool_compliance(task, worker_result))
+
+        # Check 6: Token 预算合规（安全增强）
+        checks.append(self._check_token_budget(task, worker_result))
+
+        # Check 7: 危险操作确认（安全增强）
+        checks.append(self._check_dangerous_ops_confirmed(task, worker_result))
 
         # 任何一项 FAIL，即打回
         failed = [c for c in checks if c["result"] == "FAIL"]
@@ -233,6 +251,110 @@ class Verifier:
                 return {"check": "error_free", "result": "FAIL", "reason": f"执行报错: {err[:100]}"}
         return {"check": "error_free", "result": "PASS"}
 
+    # ========== 安全增强检查（来自 Agent 生产级架构实践） ==========
+
+    def _check_tool_compliance(self, task: dict, result: dict) -> dict:
+        """
+        工具白名单合规检查
+
+        验证 Worker 只使用了当前状态/阶段允许的工具。
+        如果 result 中记录了 tools_used，逐一校验是否在白名单中。
+        """
+        val = result.get("result") or result
+        tools_used = val.get("tools_used", val.get("capabilities_used", []))
+        state = val.get("state", "RUNNING")
+        phase = val.get("phase", None)
+
+        if not tools_used:
+            return {"check": "tool_compliance", "result": "PASS", "note": "无工具使用记录"}
+
+        violations = []
+        for tool in tools_used:
+            if not is_tool_allowed(tool, state, phase):
+                violations.append(tool)
+
+        if violations:
+            return {
+                "check": "tool_compliance",
+                "result": "FAIL",
+                "reason": f"违规使用白名单外工具: {violations} (state={state}, phase={phase})",
+            }
+        return {"check": "tool_compliance", "result": "PASS"}
+
+    def _check_token_budget(self, task: dict, result: dict) -> dict:
+        """
+        Token 预算合规检查
+
+        验证 Worker 的 Token 消耗在预算范围内。
+        如果 result 中记录了 token 信息，检查是否超限。
+        """
+        val = result.get("result") or result
+        token_info = val.get("tokens", {})
+
+        if not token_info:
+            return {"check": "token_budget", "result": "PASS", "note": "无 Token 消耗记录"}
+
+        total = token_info.get("total_tokens", 0)
+        budget_limit = token_info.get("global_limit", 15000)
+
+        if total > budget_limit:
+            return {
+                "check": "token_budget",
+                "result": "FAIL",
+                "reason": f"Token 超限: {total}/{budget_limit}",
+            }
+
+        # 检查各状态/阶段的预算
+        by_phase = token_info.get("by_phase", {})
+        from security_config import get_token_budget
+        for phase_key, used in by_phase.items():
+            parts = phase_key.split(".")
+            if len(parts) == 2:
+                state_name, phase_name = parts
+                budget = get_token_budget(state_name, phase_name)
+                if budget > 0 and used > budget:
+                    return {
+                        "check": "token_budget",
+                        "result": "FAIL",
+                        "reason": f"阶段 {phase_key} Token 超限: {used}/{budget}",
+                    }
+
+        return {"check": "token_budget", "result": "PASS"}
+
+    def _check_dangerous_ops_confirmed(self, task: dict, result: dict) -> dict:
+        """
+        危险操作确认检查
+
+        验证所有危险操作（shell_executor 中的高危命令）都经过了确认。
+        如果 result 中记录了 shell 命令，检查是否包含未确认的危险操作。
+        """
+        val = result.get("result") or result
+
+        # 检查 shell 命令是否包含危险操作
+        command = val.get("command", "")
+        if not command:
+            return {"check": "dangerous_ops_confirmed", "result": "PASS", "note": "无 shell 命令"}
+
+        pattern = check_dangerous_operation(command)
+        if pattern is None:
+            return {"check": "dangerous_ops_confirmed", "result": "PASS"}
+
+        # 匹配到危险模式，检查是否有确认记录
+        confirmations = val.get("confirmations", {})
+        confirmed = confirmations.get("confirmed", False)
+        confirmed_patterns = confirmations.get("always_allow_patterns", [])
+
+        # 构造 pattern_id 检查是否在 always 白名单中
+        pattern_id = f"shell_executor:{pattern.pattern}"
+        if confirmed or pattern_id in confirmed_patterns:
+            return {"check": "dangerous_ops_confirmed", "result": "PASS"}
+
+        return {
+            "check": "dangerous_ops_confirmed",
+            "result": "FAIL",
+            "reason": f"危险操作未确认: [{pattern.level}] {pattern.description} — 命令: {command[:80]}",
+        }
+
     def _infer_task_type(self, task: dict) -> str:
         """从 task 推断 type"""
         if task.get("type"):
@@ -326,6 +448,139 @@ def _test():
     print("  ✅ PASS\n")
 
     print("=== 所有测试通过 ===\n")
+
+    # ---- 安全增强测试 ----
+
+    # Test 7: 工具白名单合规 → PASS
+    print("Test 7: 工具白名单合规 → PASS")
+    result = v.verify(
+        task={"id": "t7", "type": "code_analysis"},
+        worker_result={
+            "result": {
+                "task_id": "t7",
+                "capabilities_used": ["code_analyzer", "file_reader"],
+                "tools_used": ["code_analyzer", "file_reader"],
+                "state": "RUNNING",
+                "phase": "gather",
+                "lines": 100,
+            }
+        }
+    )
+    assert result.is_pass, f"期望 PASS，实际 {result.result}"
+    print("  ✅ PASS\n")
+
+    # Test 8: 工具白名单违规 → FAIL
+    print("Test 8: 工具白名单违规 → FAIL")
+    result = v.verify(
+        task={"id": "t8", "type": "code_analysis"},
+        worker_result={
+            "result": {
+                "task_id": "t8",
+                "capabilities_used": ["code_analyzer"],
+                "tools_used": ["code_analyzer", "shell_executor"],
+                "state": "RUNNING",
+                "phase": "gather",  # gather 不允许 shell_executor
+                "lines": 100,
+            }
+        }
+    )
+    assert not result.is_pass
+    assert any("违规" in c or "白名单" in c for c in result.causes)
+    print(f"  ✅ FAIL (causes: {result.causes})\n")
+
+    # Test 9: Token 预算合规 → PASS
+    print("Test 9: Token 预算合规 → PASS")
+    result = v.verify(
+        task={"id": "t9"},
+        worker_result={
+            "result": {
+                "task_id": "t9",
+                "capabilities_used": ["file_reader"],
+                "tokens": {
+                    "total_tokens": 3000,
+                    "global_limit": 15000,
+                    "by_state": {"RUNNING": 3000},
+                    "by_phase": {"RUNNING.gather": 1500},
+                },
+            }
+        }
+    )
+    assert result.is_pass
+    print("  ✅ PASS\n")
+
+    # Test 10: Token 预算超限 → FAIL
+    print("Test 10: Token 预算超限 → FAIL")
+    result = v.verify(
+        task={"id": "t10"},
+        worker_result={
+            "result": {
+                "task_id": "t10",
+                "capabilities_used": ["file_reader"],
+                "tokens": {
+                    "total_tokens": 20000,
+                    "global_limit": 15000,
+                    "by_state": {"RUNNING": 20000},
+                    "by_phase": {},
+                },
+            }
+        }
+    )
+    assert not result.is_pass
+    assert any("Token" in c or "超限" in c for c in result.causes)
+    print(f"  ✅ FAIL (causes: {result.causes})\n")
+
+    # Test 11: 危险操作已确认 → PASS
+    print("Test 11: 危险操作已确认 → PASS")
+    result = v.verify(
+        task={"id": "t11", "type": "shell_executor"},
+        worker_result={
+            "result": {
+                "command": "rm -rf /tmp/test",
+                "exit_code": 0,
+                "task_id": "t11",
+                "capabilities_used": ["shell_executor"],
+                "confirmations": {"confirmed": True},
+            }
+        }
+    )
+    assert result.is_pass, f"期望 PASS，实际 {result.result}"
+    print("  ✅ PASS\n")
+
+    # Test 12: 危险操作未确认 → FAIL
+    print("Test 12: 危险操作未确认 → FAIL")
+    result = v.verify(
+        task={"id": "t12", "type": "shell_executor"},
+        worker_result={
+            "result": {
+                "command": "rm -rf /tmp/test",
+                "exit_code": 0,
+                "task_id": "t12",
+                "capabilities_used": ["shell_executor"],
+                "confirmations": {},
+            }
+        }
+    )
+    assert not result.is_pass
+    assert any("危险" in c or "确认" in c for c in result.causes)
+    print(f"  ✅ FAIL (causes: {result.causes})\n")
+
+    # Test 13: 安全命令无需确认 → PASS
+    print("Test 13: 安全命令无需确认 → PASS")
+    result = v.verify(
+        task={"id": "t13", "type": "shell_executor"},
+        worker_result={
+            "result": {
+                "command": "ls -la /tmp",
+                "exit_code": 0,
+                "task_id": "t13",
+                "capabilities_used": ["shell_executor"],
+            }
+        }
+    )
+    assert result.is_pass
+    print("  ✅ PASS\n")
+
+    print("=== 所有安全测试通过 ===\n")
 
 
 if __name__ == "__main__":
