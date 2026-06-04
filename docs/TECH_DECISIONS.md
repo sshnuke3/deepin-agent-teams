@@ -126,3 +126,117 @@
 - 工具列表自动生成 LLM Function Calling 格式
 
 **相关文件：** `mcp_servers/mcp_protocol.py`、`tools/tool_registry.py`、`agents/orchestrator_v4.py`
+
+## 安全增强（P0）
+
+**选型原因：** 参考 Agent 生产级架构与质量保障实践 + OpenVibeCoding 架构分析
+**决策时间：** 2026-06-04
+
+### 工具白名单隔离
+
+**方案：** 每状态/阶段独立白名单，RUNNING 内部分 4 阶段（plan/gather/analyze/execute）
+**核心函数：** `is_tool_allowed(tool, state, phase)` — 大小写不敏感
+**关键设计：**
+- PENDING/CLAIMED/FAILED/COMPLETED 不允许任何工具
+- plan 阶段纯思考（无工具）
+- gather 阶段只读工具
+- analyze 阶段分析工具
+- execute 阶段所有工具（含写操作）
+**相关文件：** `agents/security_config.py`
+
+### Token 预算
+
+**方案：** 每状态/阶段独立上限 + 全局上限 15000
+**核心类：** `TokenTracker` — 大小写不敏感，支持 record/check_budget/summary
+**超限处理：** `check_and_enforce_token_budget()` → 自动触发 FAILED
+**相关文件：** `agents/security_config.py`、`agents/task_state_machine.py`
+
+### 危险操作确认（Confirming 守卫）
+
+**方案：** 正则匹配危险模式 → 四值确认（allow/always/deny/exit）
+**危险模式分级：** critical（rm -rf/mkfs/dd）→ high（kill -9/curl|bash）→ medium（sudo）
+**关键设计：** `always` 将 pattern_id 加入白名单，后续同类操作自动放行
+**相关文件：** `agents/security_config.py`、`agents/worker_base.py`
+
+## 离线评测框架（P1）
+
+**选型原因：** 参考 promptfoo 架构，纯 Python 实现
+**决策时间：** 2026-06-04
+
+**方案对比：**
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| promptfoo（外部工具） | 功能完整 | Node.js 依赖，CI 配置复杂 |
+| **eval_runner.py（选用）** | 零依赖，Python 原生 | 需自行实现断言 |
+
+**核心组件：**
+- AIMock — 确定性 Fixture，CI 零 API 消耗
+- EvalRunner — 评测管道（定义用例 → 执行 → 对比 → 报告）
+- EvalAssert — 评测断言工具集
+
+**相关文件：** `agents/eval_runner.py`
+
+## 可观测性（P1）
+
+**选型原因：** 轻量方案够用，后续可平滑迁移到 OpenTelemetry SDK
+**决策时间：** 2026-06-04
+
+**方案：** 三大核心指标（Token/延迟/错误率）+ Span 管理 + TimerContext
+**存储：** JSONL 格式，`tests/metrics/` 目录
+**为什么不用 OTel SDK：** 深度学习环境 pip 安装可能冲突，轻量方案零依赖
+
+**相关文件：** `agents/metrics_collector.py`
+
+## Red Teaming（P1）
+
+**选型原因：** 主动攻击验证安全机制，而非被动等待线上事故
+**决策时间：** 2026-06-04
+
+**5 类攻击向量（19 个）：**
+- Prompt 注入（3 个）— 直接覆盖、间接注入、角色扮演
+- 工具白名单绕过（5 个）— 各状态/阶段尝试违规调用
+- Token 预算绕过（3 个）— 单阶段超限、全局超限、跨阶段累计
+- 状态机非法跳转（4 个）— 跳过中间状态、状态回退
+- 确认机制绕过（4 个）— 不确认执行、编码绕过
+
+**修复记录：** base64 编码绕过（`echo xxx | base64 -d | bash`）→ 新增通用管道到解释器模式
+
+**相关文件：** `agents/red_team_tests.py`
+
+## Brain/Hands 分离（P2）
+
+**选型原因：** 学自 OpenVibeCoding，解耦编排层与执行层
+**决策时间：** 2026-06-04
+
+**核心设计：**
+- `HandsInterface` — 抽象接口（execute/health_check/get_capabilities）
+- `LocalHands` — 本地执行实现（向后兼容）
+- `DockerHands` — Docker 容器执行（预留接口）
+- `MockHands` — 测试用 Mock（确定性输出）
+- `HandsFactory` — 工厂模式创建实例
+
+**核心收益：**
+- 换执行后端不影响编排逻辑（Docker → CloudBase → 本地进程）
+- 编排层可独立测试（Mock Hands）
+- 多种执行后端可并存
+
+**相关文件：** `agents/hands_interface.py`
+
+## 三级环境隔离（P2）
+
+**选型原因：** 学自 OpenVibeCoding 的 shared/isolated/task 三级设计
+**决策时间：** 2026-06-04
+
+| 级别 | 说明 | 适用场景 |
+|------|------|----------|
+| shared | 所有人共用一个环境 | 个人项目 |
+| isolated | 每 Worker 独立环境 | 团队项目 |
+| task | 每任务独立环境 + 独立配额 | 多租户 SaaS |
+
+**核心组件：**
+- `EnvironmentManager` — 环境生命周期管理
+- `ResourceQuota` — 资源配额限制（文件数/大小/进程数/CPU/内存/超时）
+- `IsolationPolicy` — 按场景预设策略
+
+**相关文件：** `agents/environment_isolation.py`

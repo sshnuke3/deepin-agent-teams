@@ -1,6 +1,8 @@
 # 质量标准
 
 > 基于三角架构（状态机 + Verifier + Worker）的质量保障体系
+>
+> 最后更新：2026-06-04
 
 ---
 
@@ -15,8 +17,8 @@
 | RUNNING | CLAIMED | start_time 记录 | from/to/ts/start_time |
 | VERIFIED | RUNNING | Verifier PASS | from/to/ts/verdict |
 | COMPLETED | VERIFIED | 自动 | from/to/ts |
+| FAILED | PENDING/CLAIMED/RUNNING/RETRY | 超时/重试耗尽/Token超限 | from/to/ts/error_msg |
 | RETRY | RUNNING | FAIL + retry<3 | from/to/ts/verdict/causes |
-| FAILED | PENDING/CLAIMED/RUNNING/RETRY | 超时/重试耗尽 | from/to/ts/error_msg |
 
 ### 跳转规则约束
 
@@ -36,7 +38,7 @@ HEARTBEAT_INTERVAL = 5s
 
 ## 二、Verifier 验收标准
 
-### 4 项强制检查
+### 7 项检查（含 3 项安全检查）
 
 #### 1. deliverable_exists
 - 结果非空（`result != {} and result != [] and result is not None`）
@@ -60,10 +62,22 @@ HEARTBEAT_INTERVAL = 5s
 - 无未预期错误（E_NETWORK / E_PARSE 等）
 - **例外**（不算 FAIL）：`E_TIMEOUT`（用户可重试）/ `E_BLOCKED`（CAPTCHA）
 
+#### 5. tool_compliance（P0 安全增强）
+- 验证 Worker 只使用了当前状态/阶段允许的工具
+- 违规返回 FAIL，附违规工具列表
+
+#### 6. token_budget（P0 安全增强）
+- 验证 Token 消耗在预算范围内
+- 全局上限 15000，超限返回 FAIL
+
+#### 7. dangerous_ops_confirmed（P0 安全增强）
+- 验证所有危险操作（shell_executor 高危命令）都经过确认
+- 未确认返回 FAIL
+
 ### 决策规范
 
 ```
-PASS    → 4 项检查全部通过
+PASS    → 7 项检查全部通过
 FAIL    → 至少 1 项检查失败，附 causes[]
 RETRY   → 可恢复错误（暂时性），附 cause
 ```
@@ -102,6 +116,9 @@ RETRY   → 可恢复错误（暂时性），附 cause
 | E_PARSE | 解析失败 | FAIL |
 | E_BLOCKED | 被反爬/CAPTCHA | 不算 FAIL，可重试 |
 | E_NOTFOUND | 资源不存在 | FAIL |
+| E_TOOL_BLOCKED | 工具白名单拦截 | FAIL（安全违规） |
+| E_USER_DENIED | 用户拒绝危险操作 | FAIL（用户决策） |
+| E_CONFIRM_REQUIRED | 危险操作需确认 | FAIL（未完成确认流程） |
 
 ### 超时约束
 
@@ -148,7 +165,69 @@ RETRY   → 可恢复错误（暂时性），附 cause
 
 ---
 
-## 五、代码规范
+## 五、安全增强质量标准（P0）
+
+### 工具白名单
+
+- 每个状态/阶段必须有明确的工具白名单
+- `is_tool_allowed()` 必须在 `execute_capability()` 入口调用
+- 非法工具调用必须被拦截并返回 `E_TOOL_BLOCKED`
+- 新增工具必须显式加入白名单配置
+
+### Token 预算
+
+- 每状态/阶段必须有 Token 上限
+- 超限必须自动触发 FAILED（`check_and_enforce_token_budget()`）
+- TokenTracker 必须记录每次消耗（状态/阶段/模型维度）
+
+### 危险操作确认
+
+- 所有 critical/high 级危险操作必须经过用户确认
+- 确认回调必须支持四值（allow/always/deny/exit）
+- `always` 必须记录到白名单，后续同类操作自动放行
+- 新增危险模式必须补充对应的 Red Team 测试
+
+---
+
+## 六、质量保障标准（P1）
+
+### 离线评测
+
+- AIMock 必须覆盖核心任务路径
+- 评测报告必须保存到 `tests/reports/`
+- CI 必须零 API 消耗（全部使用 AIMock）
+
+### 可观测性
+
+- 三大指标必须采集：Token 消耗、执行延迟、错误率
+- 指标数据保存到 `tests/metrics/`（JSONL 格式）
+- 支持按 state/phase/model 分维度查询
+
+### Red Teaming
+
+- 19 个攻击向量必须全部被防御（防御率 100%）
+- 新增危险模式后必须补充对应的 Red Team 测试
+- Red Team 测试必须集成到 CI，每次提交自动运行
+
+---
+
+## 七、架构升级标准（P2）
+
+### Brain/Hands 分离
+
+- 编排层（Brain）只依赖 `HandsInterface` 抽象接口
+- 执行层（Hands）可替换（Local/Docker/Mock）
+- MockHands 必须支持确定性输出（CI 零成本）
+
+### 环境隔离
+
+- shared 环境必须有配额限制
+- task 环境销毁时必须清理文件系统
+- 资源配额检查必须在执行前调用
+
+---
+
+## 八、代码规范
 
 ### 完成标准（Definition of Done）
 
@@ -158,6 +237,7 @@ RETRY   → 可恢复错误（暂时性），附 cause
 - [ ] 公开方法有 docstring
 - [ ] GUI 模块不包含业务逻辑
 - [ ] 推送到 GitHub 前通过语法检查
+- [ ] 安全相关变更必须通过 Red Team 测试（19/19）
 
 ### 代码审查清单
 
@@ -178,16 +258,25 @@ RETRY   → 可恢复错误（暂时性），附 cause
 
 ---
 
-## 六、测试覆盖率
+## 九、测试覆盖率
 
 ### 单元测试要求
 
 | 模块 | 覆盖项 | 通过标准 |
-|------|--------|---------|
-| task_state_machine.py | 5 种跳转路径 | 5/5 通过 |
-| verifier.py | PASS/FAIL/RETRY 决策 | 6/6 通过 |
+|------|--------|----------|
+| security_config.py | 工具白名单 + Token 预算 + 危险操作 + 四值确认 | 5/5 通过 |
+| task_state_machine.py | 状态跳转 + 安全增强（白名单/Token/确认） | 12/12 通过 |
+| verifier.py | PASS/FAIL + 安全检查（白名单/Token/危险操作） | 13/13 通过 |
+| worker_base.py | 安全执行（白名单拦截 + Confirming 守卫） | 5/5 通过 |
+| eval_runner.py | AIMock + 评测管道 + 报告 | 6/6 通过 |
+| metrics_collector.py | 指标收集 + Span + Timer | 8/8 通过 |
+| red_team_tests.py | 19 个攻击向量防御 | 19/19 DEFENDED |
+| hands_interface.py | 请求/响应 + MockHands + Factory | 7/7 通过 |
+| environment_isolation.py | 三级隔离 + 配额 + 销毁 | 8/8 通过 |
 | checkpoint_manager.py | save/load/cleanup/verify | 6/6 通过 |
 | model_router.py | 初始化/message 构建/stats | 4/4 通过（不调 API） |
+
+**总计：95/95 测试通过，19/19 攻击向量防御**
 
 ### 集成测试
 
@@ -197,16 +286,18 @@ RETRY   → 可恢复错误（暂时性），附 cause
 
 ---
 
-## 七、赛题合规性检查
+## 十、赛题合规性检查
 
 | 要求 | 达标条件 |
-|------|---------|
+|------|----------|
 | 状态机驱动 | 所有停止条件代码写死，不是模型感觉 |
-| 独立 Verifier | Verifier ≠ 执行者，独立世界观 |
+| 独立 Verifier | Verifier ≠ 执行者，独立世界观（7 项检查含安全检查） |
 | 多模型路由 | 至少 2 款模型（MiniMax + ERNIE） |
 | trace 可追溯 | 每次跳转写 trace，决策链路清晰 |
 | 检查点恢复 | 失败不整体重来，从 checkpoint 恢复 |
-
----
-
-**最后更新**：2026-05-22
+| 安全增强 | 工具白名单 + Token 预算 + Confirming 守卫 |
+| 离线评测 | AIMock 确定性 Fixture，CI 零 API 消耗 |
+| 可观测性 | Token/延迟/错误率，Span 管理 |
+| Red Teaming | 19 个攻击向量，防御率 100% |
+| Brain/Hands 分离 | 编排层与执行层解耦，可替换执行后端 |
+| 环境隔离 | shared / isolated / task 三级隔离 |
