@@ -243,6 +243,11 @@ DANGEROUS_PATTERNS: List[DangerousPattern] = [
         description="远程脚本管道执行",
     ),
     DangerousPattern(
+        pattern=r'\|\s*(bash|sh|zsh|python|perl)\b',
+        level="high",
+        description="管道到解释器",
+    ),
+    DangerousPattern(
         pattern=r'mkfs\.',
         level="critical",
         description="格式化磁盘",
