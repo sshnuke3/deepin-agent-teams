@@ -1,11 +1,22 @@
-# deepin-agent-teams MCP 版依赖
-# 
-# 核心依赖（原有）
+# deepin-agent-teams 依赖
+#
+# 核心依赖
 erniebot
 python-dotenv
 tiktoken
 
-# MCP 协议依赖（新增）
+# GUI 依赖
+PyQt5
+
+# OCR 依赖（可选，用于屏幕文字识别）
+# paddlepaddle
+# paddleocr
+
+# 系统工具（可选，用于环境感知）
+# python-xlib          # X11 窗口管理
+# dbus-python          # D-Bus 通信
+
+# MCP 协议
 # 注意：mcp_servers/mcp_protocol.py 是纯 Python 实现，不需要 mcp SDK
 # 如果需要使用官方 MCP SDK，取消下面的注释：
 # mcp>=1.0.0
