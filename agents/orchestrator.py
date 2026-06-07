@@ -628,6 +628,15 @@ capability → agent_type 映射：
         while time.time() < deadline:
             r = self.registry.get_result(task_id)
             if r:
+                # Worker 的 complete_task 包裹了 {agent_id, role, result: {...}}
+                # 提取内层 result 以匹配 Verifier 期望的格式
+                if isinstance(r, dict) and "result" in r:
+                    inner = r["result"]
+                    # 合并 agent 元信息到内层
+                    if isinstance(inner, dict):
+                        inner.setdefault("agent_id", r.get("agent_id"))
+                        inner.setdefault("worker_role", r.get("role"))
+                        return inner
                 return r
             # 超时检查
             sm.check_timeout(timeout=self.task_timeout)
@@ -733,6 +742,49 @@ capability → agent_type 映射：
         log_warn("所有 LLM 通道均不可用", self.verbose)
         return None
 
+    # ==================== LLM 健康检查 ====================
+
+    def _check_llm_health(self) -> dict:
+        """
+        预检 LLM 可用性，返回各通道状态
+
+        Returns:
+            {"available": bool, "channels": {name: bool}, "best": str}
+        """
+        channels = {}
+
+        # 检查 MCP model-service
+        if self.tool_registry and self.tool_registry.has("chat_completion"):
+            try:
+                result = self.tool_registry.call("chat_completion", {
+                    "messages": [{"role": "user", "content": "ping"}],
+                    "model": "ernie-lite",
+                    "temperature": 0.1,
+                })
+                channels["mcp_model_service"] = result.success
+            except Exception:
+                channels["mcp_model_service"] = False
+        else:
+            channels["mcp_model_service"] = False
+
+        # 检查 model_router
+        if get_router is not None:
+            try:
+                router = get_router(verbose=False)
+                channels["model_router"] = True  # import 成功即视为可用
+            except Exception:
+                channels["model_router"] = False
+        else:
+            channels["model_router"] = False
+
+        # 检查 erniebot
+        channels["erniebot"] = erniebot is not None
+
+        available = any(channels.values())
+        best = next((k for k, v in channels.items() if v), "none")
+
+        return {"available": available, "channels": channels, "best": best}
+
     # ==================== 主流程 ====================
 
     def run(self, user_request: str, project_path: str = "") -> OrchestrationResult:
@@ -752,6 +804,13 @@ capability → agent_type 映射：
         log_info(f"启动（模式: {self.execution_mode}，超时: {self.task_timeout}s/"
                  f"{self.global_timeout}s，重试: {self.retry_max}）", self.verbose)
         log_info(f"请求: {user_request[:80]}...", self.verbose)
+
+        # Step 0.5: LLM 健康预检
+        llm_health = self._check_llm_health()
+        if llm_health["available"]:
+            log_ok(f"LLM 可用: {llm_health['best']} (通道: {llm_health['channels']})", self.verbose)
+        else:
+            log_error("所有 LLM 通道均不可用！任务将仅依赖本地工具执行。", self.verbose)
 
         # Step 0: 准备工具/Worker
         if self.execution_mode == "workers":

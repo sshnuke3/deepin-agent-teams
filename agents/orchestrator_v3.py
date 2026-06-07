@@ -32,6 +32,7 @@ import time
 import subprocess
 import threading
 import traceback
+from typing import Optional
 
 # 添加路径
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))

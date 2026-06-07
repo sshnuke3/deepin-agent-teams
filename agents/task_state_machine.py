@@ -146,8 +146,8 @@ class TransitionRule:
             (TaskState.RUNNING, TaskState.RETRY):
                 lambda c: c.verdict == "FAIL" and c.retry_count < MAX_RETRY,
 
-            # RETRY → RUNNING: 重试次数未满
-            (TaskState.RETRY, TaskState.RUNNING):
+            # RETRY → PENDING: 回到待认领状态，让编排器重新分配
+            (TaskState.RETRY, TaskState.PENDING):
                 lambda c: c.retry_count < MAX_RETRY,
 
             # RETRY → FAILED: 重试次数耗尽
@@ -177,7 +177,7 @@ class TransitionRule:
             TaskState.CLAIMED:  [TaskState.RUNNING, TaskState.FAILED],
             TaskState.RUNNING:  [TaskState.VERIFIED, TaskState.RETRY, TaskState.FAILED],
             TaskState.VERIFIED: [TaskState.COMPLETED],
-            TaskState.RETRY:    [TaskState.RUNNING, TaskState.FAILED],
+            TaskState.RETRY:    [TaskState.PENDING, TaskState.FAILED],
             TaskState.FAILED:   [],
             TaskState.COMPLETED: [],
         }.get(current, [])
@@ -306,11 +306,12 @@ class TaskStateMachine:
 
     def retry_with_increment(self) -> bool:
         """
-        RETRY 状态时调用，自动 increment retry_count 后尝试跳回 RUNNING。
+        RETRY 状态时调用，自动 increment retry_count 后跳回 PENDING
+        以便编排器重新认领任务。
         如果次数耗尽则跳转 FAILED。
 
         Returns:
-            True = 成功跳转（RUNNING 或 FAILED）
+            True = 成功跳转（PENDING 或 FAILED）
             False = 跳转被拒绝（状态不是 RETRY）
         """
         if self._state != TaskState.RETRY:
@@ -320,9 +321,9 @@ class TaskStateMachine:
         self._ctx.verdict = None  # 清除上次的 FAIL
         self._ctx.error_msg = None
 
-        # 先试 RUNNING（还有重试机会）
+        # 回到 PENDING，让编排器重新认领
         if self._ctx.retry_count < MAX_RETRY:
-            return self.transition(TaskState.RUNNING, self._ctx)
+            return self.transition(TaskState.PENDING, self._ctx)
         else:
             # 次数耗尽，直接 FAILED
             self._ctx.error_msg = f"max retry ({MAX_RETRY}) exceeded"
@@ -521,12 +522,16 @@ def _test():
 
     assert sm2.state == TaskState.RETRY
     sm2.retry_with_increment()  # count = 1
-    assert sm2.state == TaskState.RUNNING
+    assert sm2.state == TaskState.PENDING
 
+    sm2.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-002"))
+    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
     sm2.transition(TaskState.RETRY, TransitionContext(verdict="FAIL", retry_count=1))
     sm2.retry_with_increment()  # count = 2
-    assert sm2.state == TaskState.RUNNING
+    assert sm2.state == TaskState.PENDING
 
+    sm2.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-002"))
+    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
     sm2.transition(TaskState.RETRY, TransitionContext(verdict="FAIL", retry_count=2))
     sm2.retry_with_increment()  # count = 3，触发 FAILED
     assert sm2.state == TaskState.FAILED
