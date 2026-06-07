@@ -38,7 +38,7 @@ from typing import Optional
 
 # ========== 配置 ==========
 
-ERNIE_TOKEN = os.getenv("ERNIEBOT_ACCESS_TOKEN", "0b93205ac0fc59d69166edb8e24cf1bc48aed453")
+ERNIE_TOKEN = os.getenv("ERNIEBOT_ACCESS_TOKEN", "")
 
 # 超时配置（秒）
 DEFAULT_TASK_TIMEOUT = 120      # 单个子 Agent 超时
@@ -120,6 +120,7 @@ class AgentResult:
     session_key: str = ""      # 子 Agent sessionKey
     started_at: str = ""        # 开始时间 ISO 格式
     finished_at: str = ""      # 结束时间 ISO 格式
+    spawn_code: str = ""       # sessions_spawn 生成的分发指令
 
     def to_dict(self):
         return asdict(self)
