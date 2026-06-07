@@ -32,7 +32,12 @@ class AgentWorker(QThread):
         try:
             self.status_update.emit("⏳ 正在思考...")
             result = self.scenario.run(self.user_input)
-            if result.get("success"):
+            # 处理多轮对话：场景需要追问澄清
+            if result.get("needs_clarification"):
+                question = result.get("clarification_question",
+                             result.get("output", result.get("draft", "请补充信息")))
+                self.finished.emit(str(question))
+            elif result.get("success"):
                 output = result.get("output", result.get("report", "执行完成"))
                 self.finished.emit(str(output))
             else:
