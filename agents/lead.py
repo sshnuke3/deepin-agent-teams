@@ -14,7 +14,7 @@ class LeadAgent(BaseAgent):
     4. 整合结果返回用户
     """
 
-    def __init__(self, researcher: 'ResearcherAgent', coder: 'CoderAgent', verbose: bool = True):
+    def __init__(self, researcher=None, coder=None, verbose: bool = True):
         super().__init__("lead", verbose=verbose)
         self.researcher = researcher
         self.coder = coder
@@ -43,7 +43,7 @@ class LeadAgent(BaseAgent):
         try:
             tasks = json.loads(response)
             return tasks if isinstance(tasks, list) else []
-        except:
+        except (json.JSONDecodeError, TypeError):
             return [{"type": "summarize", "description": response, "assignee": "lead"}]
 
     def handle(self, user_request: str) -> str:
