@@ -292,7 +292,7 @@ RETRY   → 可恢复错误（暂时性），附 cause
 |------|----------|
 | 状态机驱动 | 所有停止条件代码写死，不是模型感觉 |
 | 独立 Verifier | Verifier ≠ 执行者，独立世界观（7 项检查含安全检查） |
-| 多模型路由 | 至少 2 款模型（MiniMax + ERNIE） |
+| 多模型路由 | 至少 2 款模型（ernie-lite + ernie-3.5） |
 | trace 可追溯 | 每次跳转写 trace，决策链路清晰 |
 | 检查点恢复 | 失败不整体重来，从 checkpoint 恢复 |
 | 安全增强 | 工具白名单 + Token 预算 + Confirming 守卫 |
