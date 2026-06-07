@@ -109,7 +109,10 @@ class ConflictResolver:
                     fcntl.flock(fd.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
                 else:
                     fcntl.flock(fd.fileno(), fcntl.LOCK_SH | fcntl.LOCK_NB)
-                # fd 保持打开，锁在进程结束时自动释放
+                # 保存 fd 引用，防止 GC 回收导致锁立即释放
+                if not hasattr(self, '_file_handles'):
+                    self._file_handles = {}
+                self._file_handles[resource_id] = fd
             except (IOError, OSError):
                 pass  # 文件锁获取失败不影响进程内锁
 
@@ -165,6 +168,15 @@ class ConflictResolver:
     def _release_lock(self, resource_id: str):
         """内部释放锁"""
         self._locks.pop(resource_id, None)
+        # 关闭文件句柄以释放 flock
+        if hasattr(self, '_file_handles'):
+            fd = self._file_handles.pop(resource_id, None)
+            if fd:
+                try:
+                    fcntl.flock(fd.fileno(), fcntl.LOCK_UN)
+                    fd.close()
+                except OSError:
+                    pass
         try:
             lock_file = self._get_lock_path(resource_id)
             if os.path.exists(lock_file):
