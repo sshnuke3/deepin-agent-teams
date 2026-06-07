@@ -141,7 +141,7 @@ deepin-agent-teams/
 │   ├── verifier.py            # 独立质检员（P0-2）
 │   ├── orchestrator_v3.py     # 编排器 v3（状态机+Verifier）
 │   ├── orchestrator_v4.py     # 编排器 v4（MCP 驱动，新增）
-│   ├── model_router.py        # 多模型路由（MiniMax + ERNIE）
+│   ├── model_router.py        # 多模型路由（ernie-lite + ernie-3.5）
 │   ├── worker_base.py         # Worker 基类（14 种能力）
 │   ├── worker_v2.py           # Worker 主循环
 │   ├── registry.py            # Agent 注册中心
@@ -251,7 +251,7 @@ python3 tests/test_mcp_integration.py
 | 基于 deepin 25 + 文心 API | `perception/` + `model_router.py` | ✅ |
 | 状态机驱动（停止条件写死） | `task_state_machine.py` | ✅ |
 | 独立 Verifier（≠ 执行者） | `verifier.py` | ✅ |
-| 多模型路由（≥2款） | `model_router.py`（MiniMax + ERNIE） | ✅ |
+| 多模型路由（≥2款） | `model_router.py`（ernie-lite + ernie-3.5） | ✅ |
 | 任务可追溯（trace） | `/tmp/deepin_traces/*.jsonl` | ✅ |
 | 检查点恢复（失败不整体重来） | `checkpoint_manager.py` | ✅ |
 | 多智能体协作 | `orchestrator_v3.py` + `sessions_spawn` | ✅ |
@@ -277,7 +277,7 @@ python3 tests/test_mcp_integration.py
 | 组件 | 技术 | 说明 |
 |------|------|------|
 | 主语言 | Python 3 | — |
-| 大模型 | MiniMax（主）+ ERNIE（备） | `model_router.py` |
+| 大模型 | ernie-lite（轻量）+ ernie-3.5（强力） | `model_router.py` |
 | 工具协议 | MCP（JSON-RPC over stdio） | `mcp_servers/mcp_protocol.py` |
 | OCR | PaddleOCR | 中文识别 |
 | GUI | PyQt5 | deepin 25 适配 |
