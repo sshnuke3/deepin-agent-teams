@@ -42,6 +42,8 @@ class ContextEngine:
         self.last_context: Optional[UserContext] = None
         # 行为追踪器
         self._behavior_tracker = None
+        # 隐私保护
+        self._privacy_guard = None
 
         # 意图触发规则
         self.intent_rules = {
@@ -88,16 +90,16 @@ class ContextEngine:
                 ctx.window_title = window.title
                 ctx.window_type = get_window_classification(window.title, window.class_name)
                 ctx.active_app = window.class_name or window.title
-        except:
-            pass
+        except Exception:
+            pass  # 窗口感知不可用时静默降级
 
         # 剪贴板
         try:
             from perception.clipboard_monitor import ClipboardMonitor
             monitor = ClipboardMonitor()
             ctx.clipboard_text = monitor.get_text()[:500]  # 限制长度
-        except:
-            pass
+        except Exception:
+            pass  # 剪贴板不可用时静默降级
 
         # 屏幕 OCR
         try:
@@ -105,10 +107,44 @@ class ContextEngine:
             screen_result = ocr_screen()
             if screen_result.get("success"):
                 ctx.screen_text = screen_result.get("full_text", "")[:1000]
-        except:
-            pass
+        except Exception:
+            pass  # OCR 不可用时静默降级
+
+        # 隐私保护：脱敏处理
+        ctx = self._apply_privacy_filter(ctx)
 
         self.last_context = ctx
+        return ctx
+
+    def _get_privacy_guard(self):
+        """获取隐私保护器单例"""
+        if self._privacy_guard is None:
+            try:
+                from perception.privacy_guard import get_privacy_guard
+                self._privacy_guard = get_privacy_guard()
+            except ImportError:
+                self._privacy_guard = None
+        return self._privacy_guard
+
+    def _apply_privacy_filter(self, ctx: UserContext) -> UserContext:
+        """对感知数据进行隐私脱敏"""
+        guard = self._get_privacy_guard()
+        if guard is None:
+            return ctx
+        try:
+            if ctx.clipboard_text:
+                ctx.clipboard_text = guard.mask_text(ctx.clipboard_text)
+            if ctx.screen_text:
+                ctx.screen_text = guard.mask_text(ctx.screen_text)
+            # 记录审计日志
+            guard.log_operation(
+                operation="context_gather",
+                agent="context_engine",
+                detail=f"window={ctx.window_title[:50]}, clip_len={len(ctx.clipboard_text)}, screen_len={len(ctx.screen_text)}",
+                sensitive=False,
+            )
+        except Exception:
+            pass  # 隐私过滤失败不阻塞主流程
         return ctx
 
     def recognize_intent(self, user_input: str = None, context: UserContext = None) -> IntentResult:
