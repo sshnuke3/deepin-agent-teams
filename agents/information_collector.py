@@ -84,11 +84,11 @@ class InformationCollector:
                                 "preview": content[:300],
                                 "size": os.path.getsize(file_path)
                             })
-                except:
+                except (IOError, OSError, UnicodeDecodeError):
                     continue
 
-        except Exception as e:
-            pass
+        except Exception:
+            pass  # 搜索失败返回空结果
 
         results.sort(key=lambda x: x["relevance"], reverse=True)
         return results[:20]
