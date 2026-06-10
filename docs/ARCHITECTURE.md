@@ -125,7 +125,7 @@ deepin-agent-teams/
 └── config.py                        # 全局配置
 ```
 
-代码统计：~17,000 行 Python，86 个文件。
+代码统计：~25,800 行 Python，77 个文件；~230 行 JSON（8 个文件）；154 行 Prompt 模板（10 个文件）。
 
 ---
 

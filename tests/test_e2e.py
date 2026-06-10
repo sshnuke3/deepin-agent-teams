@@ -18,6 +18,7 @@ import sys
 import os
 import json
 import time
+from unittest.mock import patch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "agents"))
@@ -124,8 +125,9 @@ def test_decompose_fallback():
     print("Test 5: 任务分解降级（无 LLM）")
     orch = Orchestrator(execution_mode="tools", verbose=False, enable_verifier=False)
 
-    # 不连接任何 LLM，测试降级逻辑
-    plan = orch.decompose("测试任务", project_path="/tmp")
+    # Mock _call_llm 返回 None，模拟 LLM 不可用
+    with patch.object(orch, '_call_llm', return_value=None):
+        plan = orch.decompose("测试任务", project_path="/tmp")
     assert_true("tasks" in plan, "plan 应包含 tasks")
     assert_true("spawn_plan" in plan, "plan 应包含 spawn_plan")
     assert_true(len(plan["tasks"]) > 0, "至少一个任务")
