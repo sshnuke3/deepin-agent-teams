@@ -61,7 +61,7 @@
 - 每次跳转写 trace（/tmp/deepin_traces/{task_id}.jsonl）
 - 状态机本身无状态，所有状态存在 Registry 层
 
-**7 种状态：** PENDING / CLAIMED / RUNNING / VERIFIED / COMPLETED / FAILED / RETRY
+**8 种状态：** PENDING / CLAIMED / PLANNING / RUNNING / VERIFIED / COMPLETED / FAILED / RETRY
 **跳转规则：** 见 ARCHITECTURE.md 状态转换表
 **超时检测：** RUNNING 状态超过 DEFAULT_TIMEOUT（60s）自动标记 FAILED
 **重试策略：** RETRY → RUNNING，最多 MAX_RETRY（3）次，超时耗尽跳 FAILED
@@ -74,7 +74,7 @@
 - 验收标准是清单（checklist），不是模型主观判断
 - 决策只有三种：PASS / FAIL(reasons) / RETRY(cause)
 
-**4 项检查：** deliverable_exists / functional_correctness / trace_integrity / error_free
+**11 项检查：** deliverable_exists / functional_correctness / trace_integrity / error_free / tool_compliance / token_budget / dangerous_ops_confirmed / plan_completeness / plan_coherence / context_overflow / summary_quality
 **类型分叉：** 不同 task type 有不同验收标准：
 - `code_analysis` → 需 `lines` 字段
 - `shell_executor` → 需 `command` + `exit_code`
@@ -182,11 +182,13 @@
 **选型原因：** 轻量方案够用，后续可平滑迁移到 OpenTelemetry SDK
 **决策时间：** 2026-06-04
 
-**方案：** 三大核心指标（Token/延迟/错误率）+ Span 管理 + TimerContext
+**方案：** OpenTelemetry 封装（`otel_tracer.py`）+ 降级回退（`metrics_collector.py`）
 **存储：** JSONL 格式，`tests/metrics/` 目录
-**为什么不用 OTel SDK：** 深度学习环境 pip 安装可能冲突，轻量方案零依赖
+**降级策略：** OTel SDK 不可用时自动回退到 metrics_collector，API 签名一致
+**关键埋点：** task_execution / llm_call / tool_call / state_transition / agent_loop
+**GenAI 语义约定：** 使用 `gen_ai.*` 属性名（OpenLLMetry 兼容）
 
-**相关文件：** `agents/metrics_collector.py`
+**相关文件：** `agents/otel_tracer.py`、`agents/metrics_collector.py`
 
 ## Red Teaming（P1）
 
@@ -240,3 +242,115 @@
 - `IsolationPolicy` — 按场景预设策略
 
 **相关文件：** `agents/environment_isolation.py`
+
+
+## Plan-and-Solve 规划模块（P0）
+
+**选型原因：** W3 课程核心方法——先规划再执行，减少幻觉和遗漏步骤
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- PLANNING 状态插入 CLAIMED 和 RUNNING 之间（八状态机）
+- PLANNING 阶段工具白名单为空（纯推理），Token 预算 800
+- 超时 30 秒，超时自动降级为通用任务
+- Planner 模块：生成结构化计划（TodoManager）+ nag reminder 提醒更新进度
+
+**计划格式：**
+```json
+{
+  "summary": "分析代码质量",
+  "steps": [
+    {"id": 1, "action": "读取代码文件", "capability": "file_reader", "depends_on": [], "status": "pending"}
+  ]
+}
+```
+
+**相关文件：** `agents/planner.py`、`agents/task_state_machine.py`、`prompts/planner/plan_generation.md`
+
+## 上下文管理（P1）
+
+**选型原因：** 解决多轮对话中上下文膨胀导致 token 超限的问题
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- 滑动窗口策略：保留最近 K 轮完整对话（默认 10 轮），早期压缩为摘要
+- 子Agent摘要回传：只回传压缩摘要到父上下文，不注入原始对话
+- 动态 Token 预算：`budget = base_budget + per_step_budget * remaining_steps`
+
+**子Agent摘要格式：**
+```python
+SubagentSummary(
+    task_id="task-001",
+    conclusion="发现 3 个潜在问题",
+    key_findings=["函数 A 缺少异常处理"],
+    duration_ms=1500,
+)
+```
+
+**相关文件：** `agents/context_manager.py`
+
+## Prompt 模板管理（P1）
+
+**选型原因：** 硬编码 prompt 难以迭代，文件管理 + 热加载支持快速实验
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- 热加载：修改 `.md` 文件后下次调用自动生效（mtime 检测）
+- A/B 测试：`loader.register_ab_test(path, ["v1", "v2"], weights=[0.7, 0.3])`
+- 版本管理：支持 v2/v3 等多版本模板
+- 向后兼容：PromptLoader 不可用时降级到硬编码 prompt
+
+**相关文件：** `agents/prompt_loader.py`、`prompts/` 目录
+
+## 并行扇出模式（P1）
+
+**选型原因：** 多个独立子任务可并行执行，减少总耗时
+**决策时间：** 2026-06-10
+
+**方案对比：**
+
+| 方案 | 优点 | 缺点 |
+|------|------|------|
+| asyncio | 原生异步 | 需要 async 全链路改造 |
+| **ThreadPoolExecutor（选用）** | 同步代码兼容、实现简单 | 线程开销 |
+
+**聚合策略：** concat（拼接）、vote（投票）、best（取最高置信度）、merge（深度合并）
+
+**相关文件：** `agents/orchestrator.py`（`fan_out()` + `aggregate()`）
+
+## 辩论模式（P1）
+
+**选型原因：** 技术方案选型等决策场景需要正反论证，避免单一视角偏差
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- Pro（正方）→ Con（反方）→ Pro 回应 → Con 再反驳 → Judge 裁决
+- 最多 N 轮（默认 2 轮），超过直接交 Judge
+- Judge 输出：winner / decision / confidence / reasoning
+
+**相关文件：** `agents/debate.py`
+
+## A2A 协议 + Agent Card（P2）
+
+**选型原因：** 标准化 Agent 描述，支持自动发现和动态注册
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- 每个 Agent 实现 `agent_card.json`（name/version/capabilities/agent_type）
+- `AgentRegistry.auto_discover()` 扫描 `agent_cards/` 目录自动注册
+- 支持按类型查找：`find_agent_by_type("coder")`
+
+**相关文件：** `agents/registry.py`、`agents/agent_cards/*.json`
+
+## 场景识别 + 动态模型路由（P2）
+
+**选型原因：** 不同场景需要不同复杂度的模型，动态路由比静态规则更灵活
+**决策时间：** 2026-06-10
+
+**核心设计：**
+- 三道筛子判断是否适合 Agent 化：模糊性筛 → 跨系统筛 → 多步骤筛
+- 三道都不过 → 直接 LLM 对话，不进状态机
+- 动态路由：`DynamicModelRouter` 基于场景分类结果选择 lite/strong
+- 复杂度匹配：complex → moderate → simple（从高到低返回首个匹配）
+
+**相关文件：** `agents/scenario_classifier.py`

@@ -1,3 +1,7 @@
+> ⚠️ **归档文档**：此文件为 2026-04-28 的初始规划，已被 [plan.md](plan.md) 替代。
+> 当前进度请查看 [plan.md](plan.md)（最终状态）和 [IMPROVEMENT_PLAN.md](IMPROVEMENT_PLAN.md)（详细改进计划）。
+> 最后更新：2026-06-10
+
 # deepin-agent-teams 黑客松实现规划
 
 > 第十期飞桨黑客松 - 统信×deepin Agent Teams 进阶任务 #27

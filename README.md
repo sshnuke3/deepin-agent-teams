@@ -89,17 +89,18 @@
 所有状态跳转写死在代码中，不靠模型主观判断：
 
 ```
-PENDING → CLAIMED → RUNNING → VERIFIED → COMPLETED
-                          ↓ FAIL
-                        RETRY（≤3次）
-                          ↓ 超次
-                        FAILED
+PENDING → CLAIMED → PLANNING → RUNNING → VERIFIED → COMPLETED
+                                  ↓ FAIL
+                                RETRY（≤3次）
+                                  ↓ 超次
+                                FAILED
 ```
 
 | 状态 | 说明 | 关键规则 |
 |------|------|---------|
 | PENDING | 入队，未分配 | — |
 | CLAIMED | Worker 认领 | worker_id 存在 |
+| PLANNING | 生成执行计划 | 纯推理，工具白名单为空，Token 预算 800 |
 | RUNNING | 执行中 | start_time 记录 |
 | VERIFIED | Verifier 通过 | verdict == PASS |
 | COMPLETED | 流程终结 | 自动完成 |
@@ -110,12 +111,26 @@ PENDING → CLAIMED → RUNNING → VERIFIED → COMPLETED
 
 ### 独立 Verifier
 
-Verifier ≠ 执行者，独立世界观，验收标准是清单：
+Verifier ≠ 执行者，独立世界观，验收标准是清单（11 项检查）：
 
+**基础检查（1-4）：**
 - `deliverable_exists` — 交付物非空
 - `functional_correctness` — 按 task type 分叉验收
 - `trace_integrity` — task_id + capabilities_used 存在
 - `error_free` — 无未预期错误（E_TIMEOUT/E_BLOCKED 除外）
+
+**安全检查（5-7）：**
+- `tool_compliance` — 工具白名单合规
+- `token_budget` — Token 预算合规
+- `dangerous_ops_confirmed` — 危险操作确认
+
+**规划检查（8-9）：**
+- `plan_completeness` — 计划中所有步骤标记完成
+- `plan_coherence` — 计划依赖关系自洽（无循环依赖）
+
+**上下文检查（10-11）：**
+- `context_overflow` — 上下文 token 未超出窗口
+- `summary_quality` — 子Agent摘要包含关键信息
 
 **决策**：PASS / FAIL(causes[]) / RETRY(cause)
 
@@ -137,22 +152,35 @@ cm.cleanup()                       # 成功后清理
 ```
 deepin-agent-teams/
 ├── agents/
-│   ├── task_state_machine.py  # 状态机引擎（P0-1）
-│   ├── verifier.py            # 独立质检员（P0-2）
-│   ├── orchestrator_v3.py     # 编排器 v3（状态机+Verifier）
-│   ├── orchestrator_v4.py     # 编排器 v4（MCP 驱动，新增）
-│   ├── model_router.py        # 多模型路由（ernie-lite + ernie-3.5）
+│   ├── orchestrator.py        # 统一编排器（fan_out 并行 + aggregate 聚合）
+│   ├── task_state_machine.py  # 八状态状态机引擎（含 PLANNING）
+│   ├── verifier.py            # 独立质检员（11 项检查）
+│   ├── planner.py             # Plan-and-Solve 规划模块
+│   ├── context_manager.py     # 上下文窗口管理 + 子Agent摘要回传
+│   ├── prompt_loader.py       # Prompt 模板管理（热加载 + A/B 测试）
+│   ├── debate.py              # 辩论模式（Pro/Con/Judge）
+│   ├── scenario_classifier.py # 场景识别器（三道筛子 + 动态路由）
+│   ├── otel_tracer.py         # OpenTelemetry 可观测性封装
+│   ├── model_router.py        # 多模型路由（ernie-lite + ernie-3.5 + MiniMax）
+│   ├── registry.py            # Agent 注册中心（Agent Card 自动发现）
+│   ├── security_config.py     # 安全配置（白名单/预算/确认/动态预算）
 │   ├── worker_base.py         # Worker 基类（14 种能力）
-│   ├── worker_v2.py           # Worker 主循环
-│   ├── registry.py            # Agent 注册中心
+│   ├── agent_cards/           # Agent Card 定义（A2A 协议）
+│   │   └── 7 个 .json 文件
 │   └── lead.py / researcher.py / coder.py  # 各型 Agent
-├── mcp_servers/               # MCP 工具服务（新增）
+├── prompts/                   # Prompt 模板（热加载，10 个 .md 文件）
+│   ├── planner/               # plan_generation.md
+│   ├── orchestrator/          # decompose.md / integrate.md / system.md
+│   ├── content_creator/       # email.md / summary.md
+│   ├── information_collector/ # summarize.md
+│   └── agents/                # researcher.md / coder.md / general.md
+├── mcp_servers/               # MCP 工具服务
 │   ├── mcp_protocol.py        # 轻量 MCP 协议实现（纯 Python）
 │   ├── model_server.py        # 模型 MCP Server
 │   ├── file_server.py         # 文件 MCP Server
 │   └── system_server.py       # 系统 MCP Server
 ├── tools/
-│   ├── tool_registry.py       # 统一工具注册表（新增）
+│   ├── tool_registry.py       # 统一工具注册表
 │   ├── checkpoint_manager.py  # 检查点管理
 │   ├── analyze_traces.py      # Trace 分析工具
 │   └── analyze_capabilities.py # 能力正交化分析
@@ -160,10 +188,9 @@ deepin-agent-teams/
 ├── scenarios/                 # 四大场景（邮件/诊断/代码/文献）
 ├── gui/                       # PyQt5 交互界面
 ├── docs/                      # 架构/技术/质量文档
-├── tests/                     # 测试脚本
-│   ├── test_tool_registry.py  # ToolRegistry 单元测试（8/8）
-│   └── test_mcp_integration.py # MCP 集成测试（8/8）
-└── main.py                    # CLI/GUI 入口
+└── tests/
+    ├── test_e2e.py            # 集成测试（41/41 通过）
+    └── benchmark.py           # 性能基准测试（8 模块）
 ```
 
 ---
@@ -223,23 +250,21 @@ python3 mcp_servers/system_server.py --test
 ## 🧪 测试
 
 ```bash
-# 状态机测试
-python3 agents/task_state_machine.py
+# 集成测试（41/41 通过）
+python3 tests/test_e2e.py
 
-# Verifier 测试
-python3 agents/verifier.py
+# 性能基准测试（8 模块）
+python3 tests/benchmark.py
 
-# Checkpoint 测试
-python3 tools/checkpoint_manager.py
-
-# Trace 分析
-python3 tools/analyze_traces.py
-
-# ToolRegistry 单元测试（8/8）
-python3 tests/test_tool_registry.py
-
-# MCP 集成测试（8/8）
-python3 tests/test_mcp_integration.py
+# 各模块单元测试
+python3 agents/planner.py           # Planner（9/9）
+python3 agents/task_state_machine.py # 状态机（12/12）
+python3 agents/verifier.py          # Verifier（19/19）
+python3 agents/context_manager.py   # 上下文管理（11/11）
+python3 agents/prompt_loader.py     # Prompt 模板（12/12）
+python3 agents/debate.py            # 辩论模式（10/10）
+python3 agents/scenario_classifier.py # 场景识别（15/15）
+python3 agents/otel_tracer.py       # OTel 封装（15/15）
 ```
 
 ---
@@ -254,8 +279,14 @@ python3 tests/test_mcp_integration.py
 | 多模型路由（≥2款） | `model_router.py`（ernie-lite + ernie-3.5） | ✅ |
 | 任务可追溯（trace） | `/tmp/deepin_traces/*.jsonl` | ✅ |
 | 检查点恢复（失败不整体重来） | `checkpoint_manager.py` | ✅ |
-| 多智能体协作 | `orchestrator_v3.py` + `sessions_spawn` | ✅ |
-| MCP 工具解耦 | `orchestrator_v4.py` + `mcp_servers/` + `tool_registry.py` | ✅ |
+| 多智能体协作 | `orchestrator.py` + `fan_out` 并行扇出 + `debate.py` 辩论模式 | ✅ |
+| MCP 工具解耦 | `orchestrator.py` + `mcp_servers/` + `tool_registry.py` | ✅ |
+| Plan-and-Solve | `planner.py` + PLANNING 状态 + TodoManager | ✅ |
+| 上下文管理 | `context_manager.py` 滑动窗口 + 子Agent摘要回传 | ✅ |
+| Prompt 模板 | `prompt_loader.py` 热加载 + A/B 测试 | ✅ |
+| 场景识别 | `scenario_classifier.py` 三道筛子 + 动态模型路由 | ✅ |
+| A2A 协议 | Agent Card 自动发现 + AgentRegistry | ✅ |
+| OpenTelemetry | `otel_tracer.py` + GenAI 语义约定 | ✅ |
 | 四大场景完整 | `scenarios/` | ✅ |
 | GUI 交互 | `main.py --gui` | ✅ |
 | 部署文档可复现 | `deepin25_deploy.sh` | ✅ |
@@ -277,8 +308,10 @@ python3 tests/test_mcp_integration.py
 | 组件 | 技术 | 说明 |
 |------|------|------|
 | 主语言 | Python 3 | — |
-| 大模型 | ernie-lite（轻量）+ ernie-3.5（强力） | `model_router.py` |
+| 大模型 | ernie-lite + ernie-3.5 + MiniMax | `model_router.py` |
 | 工具协议 | MCP（JSON-RPC over stdio） | `mcp_servers/mcp_protocol.py` |
+| 可观测性 | OpenTelemetry（降级：metrics_collector） | `otel_tracer.py` |
+| 并发模型 | concurrent.futures ThreadPoolExecutor | `orchestrator.py` |
 | OCR | PaddleOCR | 中文识别 |
 | GUI | PyQt5 | deepin 25 适配 |
 | 文件锁 | fcntl.flock | 多进程安全 |

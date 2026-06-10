@@ -46,16 +46,16 @@
 
 | 指标项 | 数值 |
 |--------|------|
-| 代码总量 | ~17,000 行 Python |
-| 文件总数 | 86 个 |
+| 代码总量 | ~25,800 行 Python |
+| 文件总数 | 77 个 Python + 8 个 JSON + 10 个 Prompt 模板 |
 | 感知模块 | 10 个 |
-| 智能体数量 | 3 个专职 Agent |
+| 智能体数量 | 3 个专职 Agent + 7 种 Agent Card |
 | 内置 Skills | 6 个 |
-| 状态机状态数 | 7 个 |
-| 安全验证检查项 | 7 项独立检查 |
-| 红队攻击向量 | 16 种 |
+| 状态机状态数 | 8 个（含 PLANNING） |
+| 安全验证检查项 | 11 项独立检查 |
+| 红队攻击向量 | 19 种 |
 | GUI 界面组件 | PyQt5 浮动球 + 聊天窗口 + 系统托盘 |
-| 大模型 | ERNIE-Lite（快速路由）+ ERNIE-3.5（复杂推理）|
+| 大模型 | ERNIE-Lite + ERNIE-3.5 + MiniMax |
 | 协议 | MCP (Model Context Protocol) — 纯 Python JSON-RPC over stdio |
 
 ---
@@ -1255,3 +1255,75 @@ class SystemDoctorScenario:
 > 📎 移至 [附录 §6](TECHNICAL_REPORT_APPENDIX.md#6-关键技术实现)
 
 
+---
+
+## 10. Workshop 改进（2026-06-10）
+
+基于 Agent Workshop W1-W6 课程知识，对项目进行了 8 项系统性改进：
+
+### 10.1 Plan-and-Solve 规划阶段
+
+新增 PLANNING 状态，Worker 认领任务后必须先生成结构化执行计划才能进入执行。
+
+- **Planner 模块**：`planner.py` — 生成 TodoManager 格式的步骤计划
+- **状态机更新**：8 种状态，PLANNING 阶段工具白名单为空（纯推理）
+- **验证增强**：Check 8（plan_completeness）+ Check 9（plan_coherence）
+
+### 10.2 上下文管理
+
+`context_manager.py` 提供滑动窗口 + 子Agent摘要回传能力。
+
+- **滑动窗口**：保留最近 10 轮完整对话，早期压缩为摘要
+- **子Agent摘要**：只回传结论+关键发现+耗时，不注入原始对话
+- **动态 Token 预算**：`budget = base_budget + per_step_budget * remaining_steps`
+
+### 10.3 Prompt 模板管理
+
+`prompt_loader.py` + `prompts/` 目录，支持热加载和 A/B 测试。
+
+- 10 个 Markdown 模板文件（planner/orchestrator/content_creator/information_collector/agents）
+- 热加载：修改 `.md` 文件后下次调用自动生效
+- 向后兼容：PromptLoader 不可用时降级到硬编码 prompt
+
+### 10.4 并行扇出 + 辩论模式
+
+- **fan_out()**：ThreadPoolExecutor 并行执行多个子任务
+- **aggregate()**：4 种聚合策略（concat/vote/best/merge）
+- **debate.py**：Pro/Con/Judge 三角色辩论模式，用于技术方案选型
+
+### 10.5 A2A 协议 + Agent Card
+
+7 个 Agent Card（JSON），`AgentRegistry.auto_discover()` 自动扫描注册。
+
+### 10.6 OpenTelemetry 标准化
+
+`otel_tracer.py` 封装 OTel SDK，使用 `gen_ai.*` 语义约定（OpenLLMetry 兼容）。
+
+- 5 种 Span：task_execution / llm_call / tool_call / state_transition / agent_loop
+- 降级策略：OTel SDK 不可用时自动回退到 metrics_collector
+
+### 10.7 场景识别 + 动态模型路由
+
+`scenario_classifier.py` 三道筛子判断是否适合 Agent 化：
+
+1. 模糊性筛：输入是否有多种理解方式？
+2. 跨系统筛：是否需要多个工具/系统配合？
+3. 多步骤筛：是否需要分解为多个子步骤？
+
+三道都不过 → 直接 LLM 对话，不进状态机。
+
+### 10.8 测试与基准
+
+- **集成测试**：`tests/test_e2e.py` — 41/41 通过
+- **性能基准**：`tests/benchmark.py` — 8 模块基准测试
+
+| 模块 | ops/s | 平均延迟 |
+|------|-------|---------|
+| DebateJudge.judge | 152,986 | 0.007ms |
+| Tracer.span | 112,498 | 0.009ms |
+| PromptLoader.render | 104,205 | 0.010ms |
+| Planner.create_plan | 97,952 | 0.010ms |
+| ScenarioClassifier | ~52,000 | 0.019ms |
+| Verifier.verify | 51,787 | 0.019ms |
+| ContextWindow.add+get | 21,632 | 0.046ms |
+| StateMachine.lifecycle | 4,146 | 0.241ms |
