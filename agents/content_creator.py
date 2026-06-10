@@ -6,6 +6,12 @@ import os
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
+# Prompt 模板加载
+try:
+    from prompt_loader import get_loader
+except ImportError:
+    get_loader = None
+
 
 @dataclass
 class EmailDraft:
@@ -55,7 +61,12 @@ class ContentCreator:
 
         context_text = "\n\n".join(info_items) if info_items else "无额外上下文"
 
-        prompt = f"""你是一个专业的商务邮件助手。请根据以下信息撰写一封邮件。
+        # 使用 PromptLoader 加载模板
+        if get_loader is not None:
+            loader = get_loader()
+            prompt = loader.render("content_creator/email", context_text=context_text)
+        else:
+            prompt = f"""你是一个专业的商务邮件助手。请根据以下信息撰写一封邮件。
 
 ## 上下文信息
 {context_text}
@@ -161,6 +172,18 @@ class ContentCreator:
 {text[:3000]}
 
 摘要："""
+
+        # 尝试使用 PromptLoader
+        if get_loader is not None:
+            loader = get_loader()
+            loaded_prompt = loader.render(
+                "content_creator/summary",
+                max_len=max_len,
+                style=style,
+                content=text[:3000],
+            )
+            if loaded_prompt and "不存在" not in loaded_prompt:
+                prompt = loaded_prompt
 
         try:
             import erniebot

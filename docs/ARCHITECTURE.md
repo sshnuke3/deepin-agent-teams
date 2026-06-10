@@ -1,7 +1,7 @@
 # deepin Agent Teams — 架构文档
 
 > PaddlePaddle 黑客马拉松第10期 · 统信 deepin Agent Teams 赛题  
-> 最后更新：2026-06-07
+> 最后更新：2026-06-10
 
 ---
 
@@ -16,7 +16,9 @@
 7. [安全架构](#7-安全架构)
 8. [隐私保护](#8-隐私保护)
 9. [模型路由](#9-模型路由)
-10. [技术栈](#10-技术栈)
+10. [场景识别与动态路由](#10-场景识别与动态路由)
+11. [可观测性](#11-可观测性)
+12. [技术栈](#12-技术栈)
 
 ---
 
@@ -41,14 +43,50 @@ v3 版本合并了 v3/v4/prod 三个编排器变体的最佳特性，引入 Skil
 ```
 deepin-agent-teams/
 ├── agents/                          # 智能体与编排核心
-│   ├── orchestrator.py              # 统一编排器（927 行，合并 v3/v4/prod）
-│   ├── task_state_machine.py        # 七状态有限状态机（697 行）
-│   ├── verifier.py                  # 七项独立验证检查（587 行）
-│   ├── security_config.py           # 安全配置：白名单/预算/确认（473 行）
+│   ├── orchestrator.py              # 统一编排器（含 fan_out 并行扇出 + aggregate 聚合）
+│   ├── task_state_machine.py        # 八状态有限状态机（含 PLANNING 状态）
+│   ├── verifier.py                  # 11 项独立验证检查
+│   ├── security_config.py           # 安全配置：白名单/预算/确认/动态预算
+│   ├── planner.py                   # Plan-and-Solve 规划模块（TodoManager + nag reminder）
+│   ├── context_manager.py           # 上下文窗口管理（滑动窗口 + 子Agent摘要回传）
+│   ├── prompt_loader.py             # Prompt 模板管理（热加载 + A/B 测试）
+│   ├── debate.py                    # 辩论模式（Pro/Con/Judge）
+│   ├── scenario_classifier.py       # 场景识别器（三道筛子 + 动态模型路由）
+│   ├── otel_tracer.py               # OpenTelemetry 可观测性封装
+│   ├── model_router.py              # 双文心模型路由器
+│   ├── registry.py                  # Agent 注册中心（支持 Agent Card 自动发现）
 │   ├── base_agent.py                # 智能体基类
 │   ├── system_operator.py           # 系统运维智能体
 │   ├── information_collector.py     # 信息采集智能体
-│   └── content_creator.py           # 内容创作智能体
+│   ├── content_creator.py           # 内容创作智能体
+│   ├── worker_base.py               # 通用 Worker 基类
+│   ├── metrics_collector.py         # 轻量级指标收集器
+│   ├── hands_interface.py           # Brain/Hands 分离接口
+│   ├── eval_runner.py               # 离线评测框架
+│   ├── agent_cards/                 # Agent Card 定义（A2A 协议）
+│   │   ├── system_operator.json
+│   │   ├── content_creator.json
+│   │   ├── information_collector.json
+│   │   ├── coder.json
+│   │   ├── researcher.json
+│   │   ├── lead.json
+│   │   └── general_worker.json
+│   └── ...                          # 其他智能体模块
+│
+├── prompts/                         # Prompt 模板（热加载）
+│   ├── planner/plan_generation.md
+│   ├── orchestrator/
+│   │   ├── decompose.md
+│   │   ├── integrate.md
+│   │   └── system.md
+│   ├── content_creator/
+│   │   ├── email.md
+│   │   └── summary.md
+│   ├── information_collector/summarize.md
+│   └── agents/
+│       ├── researcher.md
+│       ├── coder.md
+│       └── general.md
 │
 ├── skills/                          # Skills 模块
 │   └── __init__.py                  # SkillDef / SkillRegistry / SkillExecutor（750 行）
@@ -93,35 +131,43 @@ deepin-agent-teams/
 
 ## 3. 核心架构
 
-### 3.1 七状态有限状态机
+### 3.1 八状态有限状态机
 
 所有任务生命周期由 `TaskStateMachine` 管理，状态转移规则硬编码：
 
 ```
-PENDING ──▶ CLAIMED ──▶ RUNNING ──▶ VERIFIED ──▶ COMPLETED
-                │            │           │
-                │            │           ▼
-                │            │        FAILED ──▶ (retry) ──▶ RUNNING
-                ▼            ▼
-            CANCELLED     FAILED
+PENDING ──▶ CLAIMED ──▶ PLANNING ──▶ RUNNING ──▶ VERIFIED ──▶ COMPLETED
+                            │            │           │
+                            │            │           ▼
+                            │            │        FAILED ──▶ (retry) ──▶ RUNNING
+                            ▼            ▼
+                        CANCELLED     FAILED
 ```
+
+**PLANNING 状态**（新增）：Worker 认领后必须先生成结构化执行计划才能进入 RUNNING。
+- 工具白名单：空（纯推理，不调用任何工具）
+- Token 预算：800
+- 超时：30秒，超时自动降级
+- Planner 模块：生成步骤列表 + TodoManager 跟踪进度 + nag reminder
 
 RUNNING 状态内部细分为五个子阶段：
 
 ```
 RUNNING:
-  plan ──▶ gather ──▶ analyze ──▶ execute ──▶ respond
+  gather ──▶ analyze ──▶ execute ──▶ respond
 ```
+
+> 注：`plan` 阶段已移至独立的 PLANNING 状态
 
 ### 3.2 每阶段工具白名单
 
-| 子阶段 | 允许的工具 |
-|--------|-----------|
-| plan | （无） |
-| gather | search, file_read, ocr, clipboard_read, window_list |
-| analyze | python_eval |
-| execute | shell, package, dbus_call, file_write |
-| respond | （无） |
+| 状态/子阶段 | 允许的工具 |
+|--------|--------|
+| PLANNING | （无，纯推理） |
+| RUNNING:gather | search, file_read, ocr, clipboard_read, window_list |
+| RUNNING:analyze | python_eval |
+| RUNNING:execute | shell, package, dbus_call, file_write |
+| RUNNING:respond | （无） |
 
 ### 3.3 每阶段 Token 预算
 
@@ -135,15 +181,26 @@ RUNNING:
 
 ### 3.4 验证器（Verifier）
 
-任务完成后由 Verifier 执行 7 项独立检查，全部通过才标记 COMPLETED：
+任务完成后由 Verifier 执行 11 项独立检查，全部通过才标记 COMPLETED：
 
-1. **completeness** — 任务需求是否全部完成
-2. **consistency** — 结果内部是否自洽
-3. **no_hallucination** — 是否包含幻觉内容
-4. **tool_usage** — 工具调用是否符合白名单
-5. **security** — 是否存在越权行为
-6. **privacy** — 输出是否包含未脱敏敏感数据
-7. **format** — 输出格式是否符合规范
+**基础检查（1-4）：**
+1. **deliverable_exists** — 交付物存在
+2. **functional_correctness** — 功能正确性（按 task type 分叉）
+3. **trace_integrity** — trace 字段完整
+4. **error_free** — 无异常错误标记
+
+**安全检查（5-7）：**
+5. **tool_compliance** — 工具白名单合规（状态/阶段级别）
+6. **token_budget** — Token 预算合规（动态计算）
+7. **dangerous_ops_confirmed** — 危险操作确认
+
+**规划检查（8-9）：**
+8. **plan_completeness** — 计划中所有步骤是否标记完成
+9. **plan_coherence** — 计划步骤依赖关系是否自洽（无循环依赖）
+
+**上下文检查（10-11）：**
+10. **context_overflow** — 上下文 token 是否超出窗口
+11. **summary_quality** — 子Agent摘要是否包含关键信息（非空、非过长）
 
 ### 3.5 确认守卫（Confirming Guard）
 
@@ -178,19 +235,42 @@ class OrchestratorMode(Enum):
 ```
 execute_task(task)
   │
-  ├── 1. PENDING → CLAIMED: 选择 Agent
-  ├── 2. CLAIMED → RUNNING: 进入子阶段循环
-  │     ├── plan: 分析任务，制定计划
+  ├── 1. PENDING → CLAIMED: 选择 Agent/工具
+  ├── 2. CLAIMED → PLANNING: 生成结构化执行计划（Planner）
+  ├── 3. PLANNING → RUNNING: 进入子阶段循环
   │     ├── gather: 采集信息
   │     ├── analyze: 分析结果
   │     ├── execute: 执行操作
   │     └── respond: 生成报告
-  ├── 3. RUNNING → VERIFIED: 验证结果
-  ├── 4. VERIFIED → COMPLETED (或 FAILED → retry)
-  └── 全程 Trace 记录 + Checkpoint
+  ├── 4. RUNNING → VERIFIED: 11 项验证检查
+  ├── 5. VERIFIED → COMPLETED (或 FAILED → retry)
+  └── 全程 Trace 记录 + Checkpoint + OTel Span
 ```
 
-### 4.3 超时/重试/降级
+### 4.3 并行扇出（fan_out）
+
+新增 `fan_out()` 方法，支持并行执行多个子任务：
+
+```python
+results = orchestrator.fan_out(tasks, max_workers=4)
+merged = orchestrator.aggregate(results, strategy="concat")
+```
+
+支持 4 种聚合策略：`concat`（拼接）、`vote`（投票）、`best`（取最高置信度）、`merge`（深度合并）。
+
+### 4.4 辩论模式（Debate）
+
+技术方案选型等决策场景使用辩论模式：
+
+```python
+debate = create_debate("用 React 还是 Vue？", model_router=router, max_rounds=2)
+result = debate.run(topic, context)
+# result.winner, result.decision, result.confidence
+```
+
+流程：Pro 论点 → Con 反驳 → Pro 回应 → Con 再反驳 → Judge 裁决
+
+### 4.5 超时/重试/降级
 
 - 每个子阶段独立超时（30s ~ 120s）
 - 失败后可重试（默认 max_retries=2）
@@ -324,39 +404,148 @@ TOOL_WHITELIST = {
 
 ---
 
+
 ## 9. 模型路由
 
-系统采用双模型策略：
+系统采用双模型策略 + 动态路由：
 
 | 模型 | 用途 | 触发条件 |
 |------|------|---------|
-| ERNIE-Lite | 快速意图分类、简单问答 | 任务复杂度 < 0.4 |
-| ERNIE-3.5 | 深度推理、代码生成、分析 | 任务复杂度 ≥ 0.4 |
+| ERNIE-Lite | 快速意图分类、简单问答 | 任务复杂度 = simple |
+| ERNIE-3.5 | 深度推理、代码生成、分析 | 任务复杂度 = complex |
+| MiniMax | 第三方备选 | ERNIE 全部不可用时降级 |
+
+### 9.1 静态路由（config.py MODEL_ROUTING 表）
+
+| task_type | 模型级别 | 模型名 |
+|-----------|---------|--------|
+| intent / summary / classify / entity / translate | lite | ernie-lite |
+| email / diagnosis / code / literature / reasoning / task_plan / report | strong | ernie-3.5 |
+
+### 9.2 动态路由（DynamicModelRouter）
+
+新增场景识别器（`scenario_classifier.py`）+ 动态模型路由：
 
 ```python
-class ModelRouter:
-    """根据任务复杂度自动路由"""
-    async def route(self, prompt: str, model: Optional[str] = None) -> str:
-        if model:
-            return await self._call(model, prompt)
-        complexity = self._estimate_complexity(prompt)
-        target = "ernie-lite" if complexity < 0.4 else "ernie-3.5"
-        return await self._call(target, prompt)
+router = DynamicModelRouter(classifier=ScenarioClassifier())
+
+# 基于用户输入
+model = router.route("全面分析代码架构和性能瓶颈")  # → "strong"
+model = router.route("帮我查一下天气")               # → "lite"
+
+# 基于计划步数
+model = router.route_from_plan(steps_count=5)        # → "strong"
 ```
+
+三道筛子判断是否适合 Agent 化：
+1. **模糊性筛**：输入是否有多种理解方式？
+2. **跨系统筛**：是否需要多个工具/系统配合？
+3. **多步骤筛**：是否需要分解为多个子步骤？
+
+三道都不过 → 直接 LLM 对话，不进状态机。
 
 ---
 
-## 10. 技术栈
+## 10. 上下文管理
+
+`context_manager.py` 提供滑动窗口 + 子Agent摘要回传能力。
+
+### 10.1 滑动窗口
+
+- 保留最近 K 轮完整对话（默认 10 轮）
+- 早期对话压缩为摘要
+- Token 计数器实时跟踪上下文 token 量
+- 超过阈值（默认 20 轮）自动触发压缩
+
+### 10.2 子Agent摘要回传
+
+Worker 执行完毕后，只回传压缩摘要到父上下文：
+
+```python
+SubagentSummary(
+    task_id="task-001",
+    conclusion="发现 3 个潜在问题",
+    key_findings=["函数 A 缺少异常处理"],
+    duration_ms=1500,
+)
+```
+
+### 10.3 动态 Token 预算
+
+预算公式：`budget = base_budget + per_step_budget * remaining_steps`
+
+---
+
+## 11. Prompt 模板管理
+
+`prompt_loader.py` 提供从文件加载 prompt + 热加载 + A/B 测试能力。
+
+- **热加载**：修改 `.md` 文件后下次调用自动生效，无需重启
+- **A/B 测试**：`loader.register_ab_test(path, ["v1", "v2"], weights=[0.7, 0.3])`
+- **向后兼容**：PromptLoader 不可用时降级到硬编码 prompt
+
+---
+
+## 12. 可观测性
+
+`otel_tracer.py` 封装 OpenTelemetry，提供统一的 trace 接口。
+
+### 12.1 降级策略
+
+OTel SDK 不可用时自动回退到 `metrics_collector.py`，API 签名一致。
+
+### 12.2 关键埋点
+
+| Span 名称 | 属性 | 说明 |
+|-----------|------|------|
+| task_execution | agent.task.id, agent.task.type | 整个任务执行 |
+| llm_call | gen_ai.system, gen_ai.request.model | LLM 调用 |
+| tool_call | agent.tool.name, agent.tool.params | 工具调用 |
+| state_transition | agent.state.from, agent.state.to | 状态机跳转 |
+| agent_loop | agent.loop.iteration | Agent Loop 迭代 |
+
+### 12.3 GenAI 语义约定
+
+使用 `gen_ai.*` 属性名（OpenLLMetry 兼容）：
+- `gen_ai.system`: 模型提供方
+- `gen_ai.request.model`: 模型名
+- `gen_ai.operation.name`: 操作类型
+- `gen_ai.usage.input_tokens`: 输入 token 数
+
+---
+
+## 13. Agent Card（A2A 协议）
+
+每个 Agent 实现 `agent_card.json`，支持自动发现：
+
+```json
+{
+  "name": "coder",
+  "version": "1.0",
+  "description": "代码分析智能体",
+  "capabilities": ["code_analyzer", "ast_parser", "syntax_checker"],
+  "agent_type": "coder",
+  "security_level": "normal",
+  "model_preference": "ernie-3.5"
+}
+```
+
+`AgentRegistry.auto_discover()` 扫描 `agent_cards/` 目录，自动注册所有 Agent。
+
+---
+
+## 14. 技术栈
 
 | 组件 | 技术选型 |
 |------|---------|
 | 编程语言 | Python 3.10+ |
 | 桌面框架 | PyQt5 |
-| 大模型 SDK | erniebot (百度 ERNIE) |
+| 大模型 SDK | erniebot (百度 ERNIE) + MiniMax |
 | OCR | PaddleOCR / Tesseract |
 | 系统集成 | D-Bus (dbus-python / dbus-next) |
 | 协议 | MCP — JSON-RPC 2.0 over stdio |
-| 并发 | asyncio |
+| 可观测性 | OpenTelemetry SDK（降级：metrics_collector） |
+| 并发 | concurrent.futures + asyncio |
 | 操作系统 | deepin 25 (Debian-based) |
 | 桌面环境 | DDE (Deepin Desktop Environment) |
 | 进程管理 | systemd |
@@ -364,4 +553,4 @@ class ModelRouter:
 
 ---
 
-> 本文档反映 v3（当前）架构状态。代码统计：~17,000 行 Python，86 个文件。
+> 本文档反映 v3（当前）架构状态。最后更新：2026-06-10。

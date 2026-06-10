@@ -7,9 +7,10 @@ import os
 import time
 import fcntl
 import threading
-from typing import Dict, List, Set
+from typing import Dict, List, Set, Optional
 
 
+AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 REGISTRY_FILE = "/tmp/agent_registry.json"
 RESULT_DIR = "/tmp/agent_results"
 LOCK_FILE = "/tmp/agent_registry.lock"
@@ -66,6 +67,7 @@ class AgentRegistry:
     1. Agent 注册自己的能力和元数据
     2. 任务路由：根据能力匹配合适的 Agent
     3. 任务队列管理
+    4. 从 agent_cards/ 目录自动发现 Agent
     """
 
     _instance = None
@@ -84,10 +86,96 @@ class AgentRegistry:
             return
         self._initialized = True
         self.my_id = f"agent-{os.getpid()}"
+        self._agent_cards: Dict[str, dict] = {}  # 已加载的 Agent Card 缓存
         self._ensure_dirs()
 
     def _ensure_dirs(self):
         os.makedirs(RESULT_DIR, exist_ok=True)
+        # Agent Card 目录
+        self._cards_dir = os.path.join(AGENT_DIR, "agent_cards")
+
+    def auto_discover(self, cards_dir: str = None) -> int:
+        """
+        从 agent_cards/ 目录自动发现并注册 Agent
+
+        Args:
+            cards_dir: agent_card.json 所在目录，默认 agents/agent_cards/
+
+        Returns:
+            发现的 Agent 数量
+        """
+        cards_dir = cards_dir or self._cards_dir
+        if not os.path.isdir(cards_dir):
+            print(f"[Registry] Agent Card 目录不存在: {cards_dir}")
+            return 0
+
+        discovered = 0
+        for fname in os.listdir(cards_dir):
+            if not fname.endswith(".json"):
+                continue
+            card_path = os.path.join(cards_dir, fname)
+            try:
+                with open(card_path, 'r', encoding='utf-8') as f:
+                    card = json.load(f)
+                name = card.get("name", fname.replace(".json", ""))
+                capabilities = card.get("capabilities", [])
+
+                # 缓存 Agent Card
+                self._agent_cards[name] = card
+
+                # 注册到 Registry
+                self.register(
+                    capabilities=capabilities,
+                    metadata={
+                        "name": name,
+                        "version": card.get("version", "1.0"),
+                        "description": card.get("description", ""),
+                        "agent_type": card.get("agent_type", "general"),
+                        "security_level": card.get("security_level", "normal"),
+                        "model_preference": card.get("model_preference", ""),
+                        "input_types": card.get("input_types", []),
+                        "output_types": card.get("output_types", []),
+                        "source": "agent_card",
+                        "card_path": card_path,
+                    },
+                )
+                discovered += 1
+                print(f"[Registry] 发现 Agent: {name} (caps={capabilities})")
+            except Exception as e:
+                print(f"[Registry] 加载 Agent Card 失败: {card_path}: {e}")
+
+        if discovered:
+            print(f"[Registry] 共发现 {discovered} 个 Agent")
+        return discovered
+
+    def get_agent_card(self, name: str) -> Optional[dict]:
+        """获取已缓存的 Agent Card"""
+        return self._agent_cards.get(name)
+
+    def list_agent_cards(self) -> Dict[str, dict]:
+        """列出所有已缓存的 Agent Card"""
+        return dict(self._agent_cards)
+
+    def find_agent_by_type(self, agent_type: str) -> List[Dict]:
+        """
+        按 Agent 类型查找
+
+        Args:
+            agent_type: "researcher" / "coder" / "general"
+
+        Returns:
+            匹配的 Agent 列表
+        """
+        registry = read_registry()
+        now = time.time()
+        matching = []
+        for agent_id, info in registry["agents"].items():
+            if now - info.get("last_heartbeat", 0) > 30:
+                continue
+            meta = info.get("metadata", {})
+            if meta.get("agent_type") == agent_type:
+                matching.append({"id": agent_id, **info})
+        return matching
 
     def register(self, capabilities: List[str], metadata: Dict = None) -> str:
         """

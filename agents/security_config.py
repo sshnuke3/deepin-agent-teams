@@ -62,6 +62,7 @@ DANGEROUS_TOOLS = [
 STATE_TOOL_WHITELIST: Dict[str, List[str]] = {
     "PENDING":  [],                                  # 无工具
     "CLAIMED":  [],                                  # 无工具
+    "PLANNING": [],                                  # 规划阶段：纯推理，无工具
     "RUNNING":  READONLY_TOOLS + WRITE_TOOLS,        # 全部可用（但写操作需 Confirming）
     "VERIFIED": [],                                  # 无工具
     "COMPLETED": [],                                 # 无工具
@@ -93,6 +94,10 @@ def is_tool_allowed(tool_name: str, state: str, phase: str = None) -> bool:
     # 统一转大写，兼容大小写
     state_upper = state.upper()
 
+    # PLANNING 和 RUNNING 都有内部阶段
+    if state_upper == "PLANNING":
+        return tool_name in STATE_TOOL_WHITELIST.get("PLANNING", [])
+
     if state_upper != "RUNNING":
         return tool_name in STATE_TOOL_WHITELIST.get(state_upper, [])
 
@@ -112,6 +117,7 @@ def is_tool_allowed(tool_name: str, state: str, phase: str = None) -> bool:
 STATE_TOKEN_BUDGET: Dict[str, int] = {
     "PENDING":   0,
     "CLAIMED":   0,
+    "PLANNING":  800,     # 规划阶段预算（生成计划）
     "RUNNING":  6000,    # 总预算，内部按 phase 分配
     "VERIFIED":  500,
     "COMPLETED": 0,
@@ -137,6 +143,28 @@ def get_token_budget(state: str, phase: str = None) -> int:
     if state_upper == "RUNNING" and phase and phase in RUNNING_PHASE_TOKEN_BUDGET:
         return RUNNING_PHASE_TOKEN_BUDGET[phase]
     return STATE_TOKEN_BUDGET.get(state_upper, 0)
+
+
+def get_dynamic_token_budget(state: str, remaining_steps: int, phase: str = None) -> int:
+    """
+    动态计算 Token 预算
+
+    公式：budget = base_budget + per_step_budget * remaining_steps
+    超预算时降级到 ernie-lite（由调用方处理）
+
+    Args:
+        state: 当前状态
+        phase: 当前阶段
+        remaining_steps: 计划中剩余步骤数
+
+    Returns:
+        动态计算的 Token 预算
+    """
+    base = get_token_budget(state, phase)
+    per_step_budget = 500  # 每个剩余步骤额外预算
+    dynamic = base + per_step_budget * max(remaining_steps, 0)
+    # 不超过全局上限
+    return min(dynamic, GLOBAL_TASK_TOKEN_LIMIT)
 
 
 @dataclass

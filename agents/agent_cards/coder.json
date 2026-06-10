@@ -1,0 +1,11 @@
+{
+  "name": "coder",
+  "version": "1.0",
+  "description": "代码分析智能体，负责代码审查、AST 分析、依赖检查、文档生成",
+  "capabilities": ["code_analyzer", "ast_parser", "syntax_checker", "dependency_analyzer", "git_analyzer"],
+  "input_types": ["text", "code_file", "project_path"],
+  "output_types": ["text", "code_analysis", "doc"],
+  "security_level": "normal",
+  "model_preference": "ernie-3.5",
+  "agent_type": "coder"
+}

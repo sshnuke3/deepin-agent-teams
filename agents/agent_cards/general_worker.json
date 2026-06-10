@@ -1,0 +1,11 @@
+{
+  "name": "general_worker",
+  "version": "1.0",
+  "description": "通用 Worker 智能体，执行通用任务（Shell 命令、文件操作等）",
+  "capabilities": ["file_reader", "dir_scanner", "shell_executor", "file_writer"],
+  "input_types": ["text", "system_command"],
+  "output_types": ["text", "command_result"],
+  "security_level": "normal",
+  "model_preference": "ernie-lite",
+  "agent_type": "general"
+}

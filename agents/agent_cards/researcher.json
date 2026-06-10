@@ -1,0 +1,11 @@
+{
+  "name": "researcher",
+  "version": "1.0",
+  "description": "研究分析智能体，负责信息检索、文献分析、文件研究",
+  "capabilities": ["web_search", "web_fetcher", "file_reader"],
+  "input_types": ["text", "search_query", "url"],
+  "output_types": ["text", "research_report"],
+  "security_level": "normal",
+  "model_preference": "ernie-lite",
+  "agent_type": "researcher"
+}

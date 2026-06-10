@@ -1,0 +1,11 @@
+{
+  "name": "content_creator",
+  "version": "1.0",
+  "description": "内容创作智能体，负责邮件撰写、报告生成、文本摘要等创作任务",
+  "capabilities": ["markdown_writer", "doc_generator"],
+  "input_types": ["text", "context_info"],
+  "output_types": ["text", "email_draft", "report"],
+  "security_level": "normal",
+  "model_preference": "ernie-lite",
+  "agent_type": "general"
+}

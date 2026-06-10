@@ -102,6 +102,18 @@ class Verifier:
         # Check 7: 危险操作确认（安全增强）
         checks.append(self._check_dangerous_ops_confirmed(task, worker_result))
 
+        # Check 8: 计划完成度（Plan-and-Solve 增强）
+        checks.append(self._check_plan_completeness(task, worker_result))
+
+        # Check 9: 计划逻辑自洽（Plan-and-Solve 增强）
+        checks.append(self._check_plan_coherence(task, worker_result))
+
+        # Check 10: 上下文溢出（上下文管理增强）
+        checks.append(self._check_context_overflow(task, worker_result))
+
+        # Check 11: 摘要质量（上下文管理增强）
+        checks.append(self._check_summary_quality(task, worker_result))
+
         # 任何一项 FAIL，即打回
         failed = [c for c in checks if c["result"] == "FAIL"]
         causes = [c.get("reason", "unknown") for c in failed]
@@ -354,6 +366,159 @@ class Verifier:
             "result": "FAIL",
             "reason": f"危险操作未确认: [{pattern.level}] {pattern.description} — 命令: {command[:80]}",
         }
+
+    def _check_plan_completeness(self, task: dict, result: dict) -> dict:
+        """
+        计划完成度检查（Check 8）
+
+        验证执行计划中的所有步骤都已标记完成。
+        """
+        val = result.get("result") or result
+        plan_info = val.get("plan", {})
+
+        if not plan_info:
+            return {"check": "plan_completeness", "result": "PASS", "note": "无计划信息（可能未使用 Planner）"}
+
+        steps = plan_info.get("steps", [])
+        if not steps:
+            return {"check": "plan_completeness", "result": "PASS", "note": "计划无步骤"}
+
+        pending = [
+            s for s in steps
+            if s.get("status") in ("pending", "in_progress")
+        ]
+
+        if pending:
+            pending_desc = [s.get("description", "未知") for s in pending]
+            return {
+                "check": "plan_completeness",
+                "result": "FAIL",
+                "reason": f"计划中有 {len(pending)} 个步骤未完成: {pending_desc[:3]}...",
+            }
+
+        return {"check": "plan_completeness", "result": "PASS"}
+
+    def _check_plan_coherence(self, task: dict, result: dict) -> dict:
+        """
+        计划逻辑自洽检查（Check 9）
+
+        验证计划步骤的依赖关系是否合理：
+        1. 没有循环依赖
+        2. 依赖的步骤 id 都存在
+        """
+        val = result.get("result") or result
+        plan_info = val.get("plan", {})
+
+        if not plan_info:
+            return {"check": "plan_coherence", "result": "PASS", "note": "无计划信息"}
+
+        steps = plan_info.get("steps", [])
+        if not steps:
+            return {"check": "plan_coherence", "result": "PASS", "note": "计划无步骤"}
+
+        step_ids = {s.get("id", "") for s in steps}
+        issues = []
+
+        # 检查依赖是否存在
+        for s in steps:
+            for dep in s.get("dependencies", []):
+                if dep not in step_ids:
+                    issues.append(f"步骤 '{s.get('id')}' 依赖不存在的步骤 '{dep}'")
+
+        # 检查循环依赖（简单的 DFS）
+        dep_graph = {s.get("id", ""): s.get("dependencies", []) for s in steps}
+        visited = set()
+        in_stack = set()
+
+        def has_cycle(node):
+            if node in in_stack:
+                return True
+            if node in visited:
+                return False
+            visited.add(node)
+            in_stack.add(node)
+            for dep in dep_graph.get(node, []):
+                if has_cycle(dep):
+                    return True
+            in_stack.discard(node)
+            return False
+
+        for sid in step_ids:
+            if has_cycle(sid):
+                issues.append(f"检测到循环依赖（涉及步骤 '{sid}'）")
+                break
+
+        if issues:
+            return {
+                "check": "plan_coherence",
+                "result": "FAIL",
+                "reason": "; ".join(issues[:3]),
+            }
+
+        return {"check": "plan_coherence", "result": "PASS"}
+
+    def _check_context_overflow(self, task: dict, result: dict) -> dict:
+        """
+        上下文溢出检查（Check 10）
+
+        验证上下文 token 量是否超出窗口限制。
+        """
+        val = result.get("result") or result
+        context_info = val.get("context", {})
+
+        if not context_info:
+            return {"check": "context_overflow", "result": "PASS", "note": "无上下文信息"}
+
+        total_tokens = context_info.get("total_tokens", 0)
+        max_tokens = context_info.get("max_tokens", 4000)
+
+        if total_tokens > max_tokens * 1.5:
+            return {
+                "check": "context_overflow",
+                "result": "FAIL",
+                "reason": f"上下文 token 严重超限: {total_tokens}/{max_tokens} ({total_tokens/max_tokens:.0%})",
+            }
+
+        return {"check": "context_overflow", "result": "PASS"}
+
+    def _check_summary_quality(self, task: dict, result: dict) -> dict:
+        """
+        摘要质量检查（Check 11）
+
+        验证子Agent摘要是否包含关键信息：
+        1. 摘要非空
+        2. 摘要包含结论或关键发现
+        3. 摘要长度在合理范围内
+        """
+        val = result.get("result") or result
+        summary = val.get("summary", "")
+
+        if not summary:
+            # 没有摘要字段，跳过（不强制要求）
+            return {"check": "summary_quality", "result": "PASS", "note": "无摘要字段"}
+
+        issues = []
+
+        # 摘要过短（可能无意义）
+        if len(summary) < 3:
+            issues.append(f"摘要过短 ({len(summary)} 字符)，可能无意义")
+
+        # 摘要过长（未压缩）
+        if len(summary) > 2000:
+            issues.append(f"摘要过长 ({len(summary)} 字符)，可能未有效压缩")
+
+        # 摘要全是错误信息（没有有效内容）
+        if "error" in summary.lower() and len(summary) < 50:
+            issues.append("摘要主要是错误信息，缺少有效内容")
+
+        if issues:
+            return {
+                "check": "summary_quality",
+                "result": "FAIL",
+                "reason": "; ".join(issues[:2]),
+            }
+
+        return {"check": "summary_quality", "result": "PASS"}
 
     def _infer_task_type(self, task: dict) -> str:
         """从 task 推断 type"""

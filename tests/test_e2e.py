@@ -253,14 +253,17 @@ def test_state_machine_lifecycle():
     print("Test 9: 状态机生命周期")
     sm = TaskStateMachine("e2e-sm-test")
 
-    # PENDING → CLAIMED → RUNNING → VERIFIED → COMPLETED
+    # PENDING → CLAIMED → PLANNING → RUNNING → VERIFIED → COMPLETED
     assert_eq(sm.state, TaskState.PENDING, "初始状态")
 
     from agents.task_state_machine import TransitionContext
     sm.transition(TaskState.CLAIMED, TransitionContext(worker_id="test-worker"))
     assert_eq(sm.state, TaskState.CLAIMED, "认领后")
 
-    sm.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    assert_eq(sm.state, TaskState.PLANNING, "规划中")
+
+    sm.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     assert_eq(sm.state, TaskState.RUNNING, "运行中")
 
     sm.transition(TaskState.VERIFIED, TransitionContext(verdict="PASS"))
@@ -270,7 +273,7 @@ def test_state_machine_lifecycle():
     assert_eq(sm.state, TaskState.COMPLETED, "已完成")
 
     trace = sm.get_trace()
-    assert_true(len(trace) >= 4, f"trace 应至少 4 条，实际 {len(trace)}")
+    assert_true(len(trace) >= 5, f"trace 应至少 5 条，实际 {len(trace)}")
     print(f"  trace 条数: {len(trace)}")
     print("  ✅ PASS\n")
 

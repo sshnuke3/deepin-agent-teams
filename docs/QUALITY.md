@@ -2,7 +2,7 @@
 
 > 基于三角架构（状态机 + Verifier + Worker）的质量保障体系
 >
-> 最后更新：2026-06-04
+> 最后更新：2026-06-10
 
 ---
 
@@ -14,7 +14,8 @@
 |------|---------|---------|-----------|
 | PENDING | — | submit_task() | from/to/ts |
 | CLAIMED | PENDING, FAILED | worker_id 存在 | from/to/ts/worker_id |
-| RUNNING | CLAIMED | start_time 记录 | from/to/ts/start_time |
+| PLANNING | CLAIMED | 生成结构化计划 | from/to/ts/start_time |
+| RUNNING | PLANNING | start_time 记录 + plan_ready | from/to/ts/start_time |
 | VERIFIED | RUNNING | Verifier PASS | from/to/ts/verdict |
 | COMPLETED | VERIFIED | 自动 | from/to/ts |
 | FAILED | PENDING/CLAIMED/RUNNING/RETRY | 超时/重试耗尽/Token超限 | from/to/ts/error_msg |
@@ -38,7 +39,7 @@ HEARTBEAT_INTERVAL = 5s
 
 ## 二、Verifier 验收标准
 
-### 7 项检查（含 3 项安全检查）
+### 11 项检查（含 3 项安全检查 + 4 项增强检查）
 
 #### 1. deliverable_exists
 - 结果非空（`result != {} and result != [] and result is not None`）
@@ -74,10 +75,29 @@ HEARTBEAT_INTERVAL = 5s
 - 验证所有危险操作（shell_executor 高危命令）都经过确认
 - 未确认返回 FAIL
 
+#### 8. plan_completeness（Plan-and-Solve 增强）
+- 验证执行计划中的所有步骤都已标记完成（status = "done"）
+- 有待完成步骤返回 FAIL
+
+#### 9. plan_coherence（Plan-and-Solve 增强）
+- 验证计划步骤的依赖关系是否合理
+- 检查循环依赖（DFS 检测）
+- 检查依赖引用是否存在
+- 存在循环依赖或无效引用返回 FAIL
+
+#### 10. context_overflow（上下文管理增强）
+- 验证上下文 token 量是否超出窗口限制
+- 超出 1.5 倍上限返回 FAIL
+
+#### 11. summary_quality（上下文管理增强）
+- 验证子Agent摘要是否包含关键信息
+- 摘要为空字符串返回 FAIL
+- 摘要过长（>2000 字符）返回 FAIL
+
 ### 决策规范
 
 ```
-PASS    → 7 项检查全部通过
+PASS    → 11 项检查全部通过
 FAIL    → 至少 1 项检查失败，附 causes[]
 RETRY   → 可恢复错误（暂时性），附 cause
 ```

@@ -40,6 +40,7 @@ class TaskState(Enum):
     """任务状态枚举"""
     PENDING = "pending"      # 入队，未分配
     CLAIMED = "claimed"       # Worker 认领
+    PLANNING = "planning"     # 规划阶段：生成步骤计划
     RUNNING = "running"       # 执行中
     VERIFIED = "verified"     # Verifier 通过
     COMPLETED = "completed"   # 流程终结
@@ -134,9 +135,17 @@ class TransitionRule:
             (TaskState.PENDING, TaskState.CLAIMED):
                 lambda c: c.worker_id is not None,
 
-            # CLAIMED → RUNNING: 必须有 start_time（计时开始）
-            (TaskState.CLAIMED, TaskState.RUNNING):
+            # CLAIMED → PLANNING: 必须有 start_time（计时开始）
+            (TaskState.CLAIMED, TaskState.PLANNING):
                 lambda c: c.start_time is not None,
+
+            # PLANNING → RUNNING: 必须有 plan（计划已生成）
+            (TaskState.PLANNING, TaskState.RUNNING):
+                lambda c: c.extra.get("plan_ready") is True,
+
+            # PLANNING → FAILED: 规划超时或失败
+            (TaskState.PLANNING, TaskState.FAILED):
+                lambda c: c.error_msg is not None,
 
             # RUNNING → VERIFIED: Verifier 给出 PASS
             (TaskState.RUNNING, TaskState.VERIFIED):
@@ -174,7 +183,8 @@ class TransitionRule:
         """获取当前状态的所有合法下一状态"""
         return {
             TaskState.PENDING:  [TaskState.CLAIMED, TaskState.FAILED],
-            TaskState.CLAIMED:  [TaskState.RUNNING, TaskState.FAILED],
+            TaskState.CLAIMED:  [TaskState.PLANNING, TaskState.FAILED],
+            TaskState.PLANNING: [TaskState.RUNNING, TaskState.FAILED],
             TaskState.RUNNING:  [TaskState.VERIFIED, TaskState.RETRY, TaskState.FAILED],
             TaskState.VERIFIED: [TaskState.COMPLETED],
             TaskState.RETRY:    [TaskState.PENDING, TaskState.FAILED],
@@ -250,11 +260,16 @@ class TaskStateMachine:
         old = self._state
         self._state = to
 
-        # 如果进入 RUNNING，自动初始化阶段为 plan
-        if to == TaskState.RUNNING:
+        # 如果进入 PLANNING，标记阶段
+        if to == TaskState.PLANNING:
             self._current_phase = "plan"
-        # 离开 RUNNING，清除阶段
-        if old == TaskState.RUNNING and to != TaskState.RUNNING:
+        # 如果进入 RUNNING，初始化阶段为 gather（plan 已在 PLANNING 完成）
+        elif to == TaskState.RUNNING and old == TaskState.PLANNING:
+            self._current_phase = "gather"
+        elif to == TaskState.RUNNING:
+            self._current_phase = "plan"
+        # 离开 RUNNING/PLANNING，清除阶段
+        if old in (TaskState.RUNNING, TaskState.PLANNING) and to not in (TaskState.RUNNING, TaskState.PLANNING):
             self._current_phase = None
 
         # 构建记录（含安全字段）
@@ -287,12 +302,12 @@ class TaskStateMachine:
 
     def check_timeout(self, timeout: float = DEFAULT_TIMEOUT) -> Optional[TaskState]:
         """
-        超时检查。如果当前状态是 CLAIMED 或 RUNNING 且超时就转换为 FAILED。
+        超时检查。如果当前状态是 CLAIMED/PLANNING/RUNNING 且超时就转换为 FAILED。
 
         Returns:
             TaskState.FAILED 如果超时，None 如果未超时
         """
-        if self._state not in (TaskState.CLAIMED, TaskState.RUNNING):
+        if self._state not in (TaskState.CLAIMED, TaskState.PLANNING, TaskState.RUNNING):
             return None
         if self._ctx.start_time is None:
             return None
@@ -501,9 +516,13 @@ def _test():
     sm.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-001"))
     assert sm.state == TaskState.CLAIMED
 
-    sm.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    assert sm.state == TaskState.PLANNING
+    assert sm.current_phase == "plan"
+
+    sm.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     assert sm.state == TaskState.RUNNING
-    assert sm.current_phase == "plan"  # 自动进入 plan 阶段
+    assert sm.current_phase == "gather"  # 从 PLANNING 进入 RUNNING 应该是 gather
 
     sm.transition(TaskState.VERIFIED, TransitionContext(verdict="PASS"))
     assert sm.state == TaskState.VERIFIED
@@ -517,7 +536,8 @@ def _test():
     print("Test 2: FAIL → RETRY 循环")
     sm2 = TaskStateMachine("test-task-002")
     sm2.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-002"))
-    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     sm2.transition(TaskState.RETRY, TransitionContext(verdict="FAIL", retry_count=0))
 
     assert sm2.state == TaskState.RETRY
@@ -525,13 +545,15 @@ def _test():
     assert sm2.state == TaskState.PENDING
 
     sm2.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-002"))
-    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     sm2.transition(TaskState.RETRY, TransitionContext(verdict="FAIL", retry_count=1))
     sm2.retry_with_increment()  # count = 2
     assert sm2.state == TaskState.PENDING
 
     sm2.transition(TaskState.CLAIMED, TransitionContext(worker_id="coder-002"))
-    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm2.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     sm2.transition(TaskState.RETRY, TransitionContext(verdict="FAIL", retry_count=2))
     sm2.retry_with_increment()  # count = 3，触发 FAILED
     assert sm2.state == TaskState.FAILED
@@ -543,13 +565,19 @@ def _test():
     ok = sm3.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
     assert ok == False
     assert sm3.state == TaskState.PENDING
+    # 不能跳过 PLANNING 直接到 RUNNING
+    sm3.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-003"))
+    ok = sm3.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    assert ok == False
+    assert sm3.state == TaskState.CLAIMED
     print("  ✅ PASS\n")
 
     # Test 4: trace 记录
     print("Test 4: trace 记录")
     trace = sm.get_trace()
-    assert len(trace) == 4  # PENDING→CLAIMED→RUNNING→VERIFIED→COMPLETED
+    assert len(trace) == 5  # PENDING→CLAIMED→PLANNING→RUNNING→VERIFIED→COMPLETED
     assert trace[0]["to"] == "claimed"
+    assert trace[1]["to"] == "planning"
     assert trace[-1]["to"] == "completed"
     print("  ✅ PASS\n")
 
@@ -557,7 +585,7 @@ def _test():
     print("Test 5: 超时检测")
     sm5 = TaskStateMachine("test-task-005")
     sm5.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-005"))
-    sm5.transition(TaskState.RUNNING, TransitionContext(start_time=time.time() - 999))
+    sm5.transition(TaskState.PLANNING, TransitionContext(start_time=time.time() - 999))
     result = sm5.check_timeout(timeout=60)
     assert result == TaskState.FAILED
     assert sm5.state == TaskState.FAILED
@@ -575,16 +603,17 @@ def _test():
     assert "pending" in reason
 
     sm6.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-006"))
-    sm6.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
-    assert sm6.current_phase == "plan"
+    sm6.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
 
-    # plan 阶段：不允许任何工具（纯推理）
+    # PLANNING 阶段：不允许任何工具（纯推理）
     ok, reason = sm6.can_use_tool("file_reader")
     assert ok == False
-    assert "plan" in reason
+    assert "planning" in reason
 
-    # 推进到 gather 阶段
-    sm6.advance_phase("gather")
+    sm6.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
+    assert sm6.current_phase == "gather"
+
+    # gather 阶段：允许只读工具
     ok, _ = sm6.can_use_tool("file_reader")
     assert ok == True  # gather 允许只读工具
     ok, reason = sm6.can_use_tool("shell_executor")
@@ -600,11 +629,10 @@ def _test():
     print("Test 7: RUNNING 阶段推进")
     sm7 = TaskStateMachine("test-task-007")
     sm7.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-007"))
-    sm7.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm7.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm7.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
 
-    assert sm7.current_phase == "plan"
-    sm7.advance_phase("gather")
-    assert sm7.current_phase == "gather"
+    assert sm7.current_phase == "gather"  # 从 PLANNING 进入是 gather
     sm7.advance_phase("analyze")
     assert sm7.current_phase == "analyze"
     # 回退到 gather（数据不足）
@@ -623,7 +651,8 @@ def _test():
     print("Test 8: Token 预算追踪")
     sm8 = TaskStateMachine("test-task-008")
     sm8.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-008"))
-    sm8.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm8.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm8.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
 
     sm8.advance_phase("gather")
     sm8.record_tokens(500)
@@ -640,7 +669,8 @@ def _test():
     print("Test 9: Token 预算超限自动失败")
     sm9 = TaskStateMachine("test-task-009")
     sm9.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-009"))
-    sm9.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm9.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm9.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     sm9.advance_phase("gather")
 
     # 模拟大量 Token 消耗
@@ -655,7 +685,8 @@ def _test():
     print("Test 10: Confirming 守卫")
     sm10 = TaskStateMachine("test-task-010")
     sm10.transition(TaskState.CLAIMED, TransitionContext(worker_id="c-010"))
-    sm10.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+    sm10.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+    sm10.transition(TaskState.RUNNING, TransitionContext(start_time=time.time(), extra={"plan_ready": True}))
     sm10.advance_phase("execute")
 
     # 安全命令不需要确认

@@ -8,6 +8,12 @@ import re
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 
+# Prompt 模板加载
+try:
+    from prompt_loader import get_loader
+except ImportError:
+    get_loader = None
+
 
 @dataclass
 class InfoSource:
@@ -245,7 +251,16 @@ class InformationCollector:
         if len(content) <= max_length:
             return content
 
-        prompt = f"""请简要总结以下内容，保留关键信息，不超过{max_length}字：
+        # 使用 PromptLoader 加载模板
+        if get_loader is not None:
+            loader = get_loader()
+            prompt = loader.render(
+                "information_collector/summarize",
+                max_length=max_length,
+                content=content[:2000],
+            )
+        else:
+            prompt = f"""请简要总结以下内容，保留关键信息，不超过{max_length}字：
 
 {content[:2000]}
 

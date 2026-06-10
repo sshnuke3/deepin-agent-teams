@@ -1,0 +1,11 @@
+{
+  "name": "system_operator",
+  "version": "1.0",
+  "description": "系统运维智能体，负责系统诊断、服务管理、包管理等运维任务",
+  "capabilities": ["shell_executor", "file_reader", "package_tool"],
+  "input_types": ["text", "system_command"],
+  "output_types": ["text", "command_result"],
+  "security_level": "elevated",
+  "model_preference": "ernie-lite",
+  "agent_type": "general"
+}

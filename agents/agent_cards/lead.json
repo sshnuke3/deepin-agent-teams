@@ -1,0 +1,11 @@
+{
+  "name": "lead",
+  "version": "1.0",
+  "description": "领导协调智能体，负责任务分解、子 Agent 调度、结果整合",
+  "capabilities": ["file_reader", "dir_scanner", "code_analyzer"],
+  "input_types": ["text"],
+  "output_types": ["text", "task_plan", "report"],
+  "security_level": "normal",
+  "model_preference": "ernie-3.5",
+  "agent_type": "general"
+}

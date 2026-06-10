@@ -1,0 +1,11 @@
+{
+  "name": "information_collector",
+  "version": "1.0",
+  "description": "信息收集智能体，负责文件搜索、日志分析、网络信息收集等研究任务",
+  "capabilities": ["file_reader", "dir_scanner", "web_search", "web_fetcher"],
+  "input_types": ["text", "search_query"],
+  "output_types": ["text", "structured_data"],
+  "security_level": "normal",
+  "model_preference": "ernie-lite",
+  "agent_type": "researcher"
+}

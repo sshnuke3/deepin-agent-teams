@@ -36,6 +36,7 @@ import time
 import subprocess
 import threading
 import select
+import concurrent.futures
 from dataclasses import dataclass, field, asdict
 from typing import Dict, List, Optional, Any, Callable
 from enum import Enum
@@ -57,6 +58,34 @@ try:
 except ImportError:
     ToolRegistry = None
     CallResult = None
+
+# Planner（规划模块）
+try:
+    from planner import Planner, TodoManager, TaskPlan
+except ImportError:
+    Planner = None
+    TodoManager = None
+    TaskPlan = None
+
+# 上下文管理
+try:
+    from context_manager import ContextWindow, SubagentSummary, ContextAwareLLM
+except ImportError:
+    ContextWindow = None
+    SubagentSummary = None
+    ContextAwareLLM = None
+
+# Prompt 模板管理
+try:
+    from prompt_loader import get_loader
+except ImportError:
+    get_loader = None
+
+# 可观测性（OpenTelemetry 封装）
+try:
+    from otel_tracer import get_tracer as get_otel_tracer
+except ImportError:
+    get_otel_tracer = None
 
 # 模型路由（可选）
 try:
@@ -210,6 +239,9 @@ class Orchestrator:
         # 核心组件
         self.verifier = Verifier() if enable_verifier else None
         self.task_state_machines: Dict[str, TaskStateMachine] = {}
+        self.planner = Planner() if Planner is not None else None
+        self.context_window = ContextWindow() if ContextWindow is not None else None
+        self.tracer = get_otel_tracer() if get_otel_tracer is not None else None
 
         # tools 模式组件
         self.tool_registry: Optional[ToolRegistry] = None
@@ -380,7 +412,17 @@ class Orchestrator:
                 tools_desc = json.dumps(tools_list, ensure_ascii=False, indent=2)
                 tools_section = "可用工具（MCP 协议）：\n" + tools_desc + "\n"
 
-        prompt = f"""用户需求：{user_request}
+        # 使用 PromptLoader 加载模板（支持热加载）
+        if get_loader is not None:
+            loader = get_loader()
+            prompt = loader.render(
+                "orchestrator/decompose",
+                user_request=user_request,
+                tools_section=tools_section,
+            )
+        else:
+            # 降级：使用硬编码 prompt
+            prompt = f"""用户需求：{user_request}
 
 {tools_section}
 请将上述需求分解为具体的子任务。
@@ -460,12 +502,15 @@ capability → agent_type 映射：
         执行单个任务（含状态机 + 验收 + 重试）
 
         状态机流程：
-          PENDING → CLAIMED → RUNNING → VERIFIED → COMPLETED
-                                ↓
-                              RETRY（≤ retry_max 次）
-                                ↓
-                              FAILED
+          PENDING → CLAIMED → PLANNING → RUNNING → VERIFIED → COMPLETED
+                                        ↓
+                                      RETRY（≤ retry_max 次）
+                                        ↓
+                                      FAILED
         """
+        # OTel 追踪
+        task_span = self.tracer.trace_task_execution(task_id, task.get("type", "")) if self.tracer else None
+
         sm = TaskStateMachine(task_id)
         self.task_state_machines[task_id] = sm
         start_time = time.time()
@@ -479,6 +524,9 @@ capability → agent_type 映射：
                     error_msg="no available worker/tool",
                     verdict="FAIL",
                 ))
+                if task_span:
+                    task_span.set_status("error", "no available worker/tool")
+                    task_span.finish("error")
                 return TaskResult(
                     task_id=task_id,
                     status=TaskStatus.FAILED,
@@ -488,8 +536,28 @@ capability → agent_type 映射：
                     trace=sm.get_trace(),
                 )
 
-            # === CLAIMED → RUNNING ===
-            sm.transition(TaskState.RUNNING, TransitionContext(start_time=time.time()))
+            # === CLAIMED → PLANNING ===
+            sm.transition(TaskState.PLANNING, TransitionContext(start_time=time.time()))
+
+            # === 生成执行计划 ===
+            task_plan = None
+            todo_manager = None
+            if self.planner is not None:
+                try:
+                    task_plan = self.planner.create_plan(
+                        task_description=task.get("description", task.get("goal", str(task))),
+                        context=json.dumps(task, ensure_ascii=False)[:500],
+                    )
+                    todo_manager = TodoManager(task_plan)
+                    log_info(f"{task_id}: 计划生成完毕 ({task_plan.steps.__len__()} 步)", self.verbose)
+                except Exception as e:
+                    log_warn(f"{task_id}: 计划生成失败，降级为无计划模式: {e}", self.verbose)
+
+            # === PLANNING → RUNNING ===
+            sm.transition(TaskState.RUNNING, TransitionContext(
+                start_time=time.time(),
+                extra={"plan_ready": True},
+            ))
 
             # === 执行 ===
             try:
@@ -505,6 +573,9 @@ capability → agent_type 映射：
                     error_msg="global timeout cancelled",
                     verdict="FAIL",
                 ))
+                if task_span:
+                    task_span.set_status("error", "global timeout cancelled")
+                    task_span.finish("error")
                 return TaskResult(
                     task_id=task_id,
                     status=TaskStatus.CANCELLED,
@@ -516,7 +587,12 @@ capability → agent_type 映射：
 
             # === Verifier 验收 ===
             if self.enable_verifier and self.verifier:
-                v = self.verifier.verify(task, {"result": result_data})
+                # 构造含 plan 信息的结果
+                result_with_plan = {
+                    "result": result_data,
+                    "plan": task_plan.to_dict() if task_plan else {},
+                }
+                v = self.verifier.verify(task, result_with_plan)
                 verdict = v.result
                 causes = v.causes
                 is_pass = v.is_pass
@@ -533,6 +609,20 @@ capability → agent_type 映射：
                 sm.transition(TaskState.COMPLETED, TransitionContext())
                 duration = int((time.time() - start_time) * 1000)
                 log_ok(f"{task_id}: 完成 (耗时 {duration}ms)", self.verbose)
+
+                # 注入子Agent摘要到上下文窗口
+                if self.context_window is not None and SubagentSummary is not None:
+                    task_result_dict = {
+                        "task_id": task_id,
+                        "duration_ms": duration,
+                        "result": result_data,
+                    }
+                    summary = SubagentSummary.from_task_result(task_result_dict)
+                    self.context_window.add_subagent_summary(summary)
+
+                if task_span:
+                    task_span.set_attribute("gen_ai.usage.input_tokens", result_data.get("token_usage", 0) if isinstance(result_data, dict) else 0)
+                    task_span.finish("ok")
                 return TaskResult(
                     task_id=task_id,
                     status=TaskStatus.COMPLETED,
@@ -563,6 +653,9 @@ capability → agent_type 映射：
                 ))
                 duration = int((time.time() - start_time) * 1000)
                 log_error(f"{task_id}: 失败 (重试耗尽) 原因: {causes}", self.verbose)
+                if task_span:
+                    task_span.set_status("error", f"max retry exceeded: {causes}")
+                    task_span.finish("error")
                 return TaskResult(
                     task_id=task_id,
                     status=TaskStatus.FAILED,
@@ -665,7 +758,17 @@ capability → agent_type 映射：
                 summary = tr.error[:300] if tr.error else "无结果"
             result_parts.append(f"## {task_id} [{status_str}]\n{summary}")
 
-        prompt = f"""用户需求：{user_request}
+        # 使用 PromptLoader 加载模板
+        if get_loader is not None:
+            loader = get_loader()
+            prompt = loader.render(
+                "orchestrator/integrate",
+                user_request=user_request,
+                plan_json=json.dumps(plan, ensure_ascii=False, indent=2),
+                results_text="\n".join(result_parts),
+            )
+        else:
+            prompt = f"""用户需求：{user_request}
 
 任务分解：
 {json.dumps(plan, ensure_ascii=False, indent=2)}
@@ -683,10 +786,216 @@ capability → agent_type 映射：
 
         report = self._call_llm(prompt, task_type="report")
         if report:
+            # 注入最终报告到上下文窗口
+            if self.context_window is not None:
+                self.context_window.add_turn("assistant", report, metadata={"type": "final_report"})
             return report
 
         # 降级：简单拼接
-        return f"# 执行报告\n\n" + "\n\n".join(result_parts)
+        fallback = f"# 执行报告\n\n" + "\n\n".join(result_parts)
+        if self.context_window is not None:
+            self.context_window.add_turn("assistant", fallback, metadata={"type": "final_report"})
+        return fallback
+
+    # ==================== 并行扇出 ====================
+
+    def fan_out(self, tasks: List[Dict], max_workers: int = 4) -> Dict[str, TaskResult]:
+        """
+        并行分发多个子任务，等待全部完成
+
+        Args:
+            tasks: 子任务列表
+            max_workers: 最大并行数（默认 4）
+
+        Returns:
+            {task_id: TaskResult} 字典
+        """
+        if not tasks:
+            return {}
+
+        max_workers = min(max_workers, len(tasks))
+        log_info(f"fan_out: {len(tasks)} 个任务，并行度 {max_workers}", self.verbose)
+
+        task_results: Dict[str, TaskResult] = {}
+        task_results_lock = threading.Lock()
+
+        def _execute_one(task: dict) -> tuple:
+            """单个任务执行（在线程中运行）"""
+            task_id = task.get("id", f"task-{int(time.time() * 1000)}")
+            log_info(f"[fan_out] {task_id}: 开始执行", self.verbose)
+            try:
+                result = self.execute_task(task, task_id)
+            except Exception as e:
+                log_error(f"[fan_out] {task_id}: 异常 {e}", self.verbose)
+                result = TaskResult(
+                    task_id=task_id,
+                    status=TaskStatus.FAILED,
+                    error=str(e),
+                )
+            return task_id, result
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {
+                executor.submit(_execute_one, task): task.get("id", "unknown")
+                for task in tasks
+            }
+
+            for future in concurrent.futures.as_completed(futures):
+                try:
+                    task_id, result = future.result(timeout=self.task_timeout + 10)
+                    with task_results_lock:
+                        task_results[task_id] = result
+                    status_icon = "✅" if result.status == TaskStatus.COMPLETED else "❌"
+                    log_info(f"[fan_out] {task_id}: {status_icon} {result.status.value}", self.verbose)
+                except concurrent.futures.TimeoutError:
+                    tid = futures[future]
+                    log_error(f"[fan_out] {tid}: 超时", self.verbose)
+                    with task_results_lock:
+                        task_results[tid] = TaskResult(
+                            task_id=tid, status=TaskStatus.TIMEOUT,
+                            error=f"fan_out timeout after {self.task_timeout}s",
+                        )
+                except Exception as e:
+                    tid = futures[future]
+                    log_error(f"[fan_out] {tid}: 未捕获异常 {e}", self.verbose)
+                    with task_results_lock:
+                        task_results[tid] = TaskResult(
+                            task_id=tid, status=TaskStatus.FAILED,
+                            error=str(e),
+                        )
+
+        success_count = sum(1 for r in task_results.values() if r.status == TaskStatus.COMPLETED)
+        log_ok(f"fan_out 完成: {success_count}/{len(task_results)} 成功", self.verbose)
+        return task_results
+
+    # ==================== 结果聚合 ====================
+
+    @staticmethod
+    def aggregate(
+        results: Dict[str, TaskResult],
+        strategy: str = "concat",
+    ) -> Dict[str, Any]:
+        """
+        汇总多个并行任务的结果
+
+        Args:
+            results: {task_id: TaskResult}
+            strategy: 汇总策略
+                - "concat": 拼接所有成功结果
+                - "vote": 投票（适用于分类任务）
+                - "best": 取最高置信度
+                - "merge": 深度合并 dict 结果
+
+        Returns:
+            汇总后的结果 dict
+        """
+        successful = {
+            tid: tr for tid, tr in results.items()
+            if tr.status == TaskStatus.COMPLETED and tr.result is not None
+        }
+        failed = {
+            tid: tr for tid, tr in results.items()
+            if tr.status != TaskStatus.COMPLETED
+        }
+
+        if not successful:
+            return {
+                "strategy": strategy,
+                "success_count": 0,
+                "fail_count": len(failed),
+                "merged_result": None,
+                "errors": {tid: tr.error for tid, tr in failed.items()},
+            }
+
+        if strategy == "concat":
+            # 拼接所有结果为列表
+            merged = []
+            for tid, tr in successful.items():
+                merged.append({
+                    "task_id": tid,
+                    "result": tr.result,
+                })
+            return {
+                "strategy": strategy,
+                "success_count": len(successful),
+                "fail_count": len(failed),
+                "merged_result": merged,
+                "errors": {tid: tr.error for tid, tr in failed.items()},
+            }
+
+        elif strategy == "vote":
+            # 投票：统计 result 中 "label" 或 "answer" 字段的出现频率
+            from collections import Counter
+            votes = Counter()
+            for tid, tr in successful.items():
+                r = tr.result
+                if isinstance(r, dict):
+                    label = r.get("label") or r.get("answer") or r.get("verdict", "unknown")
+                else:
+                    label = str(r)
+                votes[label] += 1
+            winner, count = votes.most_common(1)[0]
+            return {
+                "strategy": strategy,
+                "success_count": len(successful),
+                "fail_count": len(failed),
+                "merged_result": {
+                    "winner": winner,
+                    "vote_count": count,
+                    "total_votes": sum(votes.values()),
+                    "all_votes": dict(votes),
+                },
+                "errors": {tid: tr.error for tid, tr in failed.items()},
+            }
+
+        elif strategy == "best":
+            # 取最高置信度的结果
+            best_tid = None
+            best_score = -1
+            for tid, tr in successful.items():
+                r = tr.result
+                score = 0
+                if isinstance(r, dict):
+                    score = r.get("confidence", r.get("score", 0))
+                if score > best_score:
+                    best_score = score
+                    best_tid = tid
+            return {
+                "strategy": strategy,
+                "success_count": len(successful),
+                "fail_count": len(failed),
+                "merged_result": {
+                    "best_task_id": best_tid,
+                    "confidence": best_score,
+                    "result": successful[best_tid].result if best_tid else None,
+                },
+                "errors": {tid: tr.error for tid, tr in failed.items()},
+            }
+
+        elif strategy == "merge":
+            # 深度合并所有 dict 结果
+            merged = {}
+            for tid, tr in successful.items():
+                if isinstance(tr.result, dict):
+                    merged.update(tr.result)
+                else:
+                    merged[tid] = tr.result
+            return {
+                "strategy": strategy,
+                "success_count": len(successful),
+                "fail_count": len(failed),
+                "merged_result": merged,
+                "errors": {tid: tr.error for tid, tr in failed.items()},
+            }
+
+        else:
+            return {
+                "strategy": strategy,
+                "success_count": len(successful),
+                "fail_count": len(failed),
+                "merged_result": None,
+                "error": f"未知策略: {strategy}",
+            }
 
     # ==================== LLM 调用抽象 ====================
 
@@ -700,20 +1009,34 @@ capability → agent_type 映射：
         3. erniebot 直接调用
         4. 返回 None（降级）
         """
+        llm_span = self.tracer.trace_llm_call(model=task_type, task_type=task_type) if self.tracer else None
+
+        # 构建消息列表（注入上下文窗口历史）
+        messages = []
+        if self.context_window is not None:
+            messages.extend(self.context_window.get_messages(include_summary=True))
+        messages.append({"role": "user", "content": prompt})
+
         # 方式 1：通过 MCP tool_registry 调用 model-service
         if self.tool_registry and self.tool_registry.has("chat_completion"):
             try:
+                # 使用 PromptLoader 加载 system prompt
+                system_content = "你是任务分解和报告整合专家。只输出 JSON 或 Markdown。"
+                if get_loader is not None:
+                    loaded = get_loader().render("orchestrator/system")
+                    if loaded and "不存在" not in loaded:
+                        system_content = loaded
                 result = self.tool_registry.call("chat_completion", {
-                    "messages": [
-                        {"role": "system", "content": "你是任务分解和报告整合专家。只输出 JSON 或 Markdown。"},
-                        {"role": "user", "content": prompt},
-                    ],
+                    "messages": [{"role": "system", "content": system_content}] + messages,
                     "model": "ernie-3.5",
                     "temperature": 0.3,
                 })
                 if result.success:
                     resp = result.output
                     if isinstance(resp, dict) and resp.get("success"):
+                        if llm_span:
+                            llm_span.set_attribute("gen_ai.request.model", "ernie-3.5")
+                            llm_span.finish("ok")
                         return resp["result"]
             except Exception as e:
                 log_warn(f"MCP model-service 调用失败: {e}", self.verbose)
@@ -724,6 +1047,9 @@ capability → agent_type 映射：
                 router = get_router(verbose=self.verbose)
                 resp = router.chat(prompt, task_type=task_type)
                 if resp.get("success"):
+                    if llm_span:
+                        llm_span.set_attribute("gen_ai.request.model", resp.get("model", "ernie"))
+                        llm_span.finish("ok")
                     return resp["result"]
             except Exception as e:
                 log_warn(f"model_router 调用失败: {e}", self.verbose)
@@ -733,13 +1059,20 @@ capability → agent_type 映射：
             try:
                 response = erniebot.ChatCompletion.create(
                     model="ernie-lite",
-                    messages=[{"role": "user", "content": prompt}],
+                    messages=messages[-5:],  # 只取最近 5 条，避免超限
                 )
-                return response.get_result() if hasattr(response, 'get_result') else str(response)
+                result_val = response.get_result() if hasattr(response, 'get_result') else str(response)
+                if llm_span:
+                    llm_span.set_attribute("gen_ai.request.model", "ernie-lite")
+                    llm_span.finish("ok")
+                return result_val
             except Exception as e:
                 log_warn(f"erniebot 调用失败: {e}", self.verbose)
 
         log_warn("所有 LLM 通道均不可用", self.verbose)
+        if llm_span:
+            llm_span.set_status("error", "所有 LLM 通道均不可用")
+            llm_span.finish("error")
         return None
 
     # ==================== LLM 健康检查 ====================
@@ -804,6 +1137,10 @@ capability → agent_type 映射：
         log_info(f"启动（模式: {self.execution_mode}，超时: {self.task_timeout}s/"
                  f"{self.global_timeout}s，重试: {self.retry_max}）", self.verbose)
         log_info(f"请求: {user_request[:80]}...", self.verbose)
+
+        # 初始化上下文窗口
+        if self.context_window is not None:
+            self.context_window.add_turn("user", user_request)
 
         # Step 0.5: LLM 健康预检
         llm_health = self._check_llm_health()
