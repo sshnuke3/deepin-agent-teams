@@ -1327,3 +1327,98 @@ class SystemDoctorScenario:
 | Verifier.verify | 51,787 | 0.019ms |
 | ContextWindow.add+get | 21,632 | 0.046ms |
 | StateMachine.lifecycle | 4,146 | 0.241ms |
+
+---
+
+## 11. 自主 Agent 能力：感知→决策→执行→反馈闭环（2026-06-11）
+
+### 11.1 背景
+
+传统桌面助手是被动的：用户输入指令 → 系统执行。本项目实现了从"被动助手"到"自主 Agent"的升级：系统主动感知环境变化 → 自主决策是否干预 → 低风险操作自动执行 → 根据用户反馈调整行为。
+
+### 11.2 四层架构
+
+```
+环境感知层（perception/）
+  剪贴板监听 · 窗口状态 · 系统服务监控
+        ↓
+感知桥接层（gui/perception_bridge.py）
+  QTimer 轮询：剪贴板(2s) · 窗口(3s) · 系统(10s)
+  信号分发：clipboard_changed / window_changed / system_alert
+        ↓
+决策引擎（gui/decision_engine.py）
+  置信度评估 + 风险分级 → 三档决策：
+  - confidence>0.8 + risk=low  → 自动执行
+  - confidence 0.5~0.8         → 建议，等用户确认
+  - risk=high                  → 只告警，不执行
+        ↓
+自主执行器（gui/auto_executor.py）
+  低风险自动执行：翻译 · 总结 · 代码分析 · 诊断
+  结果推送到对话窗口（绿色边框）+ 写入剪贴板
+        ↓
+反馈闭环（gui/feedback_tracker.py）
+  记录用户行为：accepted / dismissed / ignored / blocked
+  动态调整置信度：+0.05 / -0.02 / -0.05 / -0.20
+  持久化：.feedback_history.json
+```
+
+### 11.3 决策引擎详解
+
+`DecisionEngine` 接收感知事件，输出 `Decision` 对象：
+
+```python
+@dataclass
+class Decision:
+    action: str          # translate / summarize / analyze_code / diagnose / ignore
+    confidence: float    # 0.0 ~ 1.0
+    risk_level: str      # low / medium / high
+    auto_execute: bool   # 是否自动执行
+    reasoning: str       # 决策理由
+    context: dict        # 附加上下文
+```
+
+**决策矩阵**：
+
+| 场景 | 基础置信度 | 风险 | 默认行为 |
+|------|-----------|------|----------|
+| 英文内容 → 翻译 | 85% | low | 自动执行 |
+| 代码片段 → 分析 | 70% | low | 置信度足够时自动执行 |
+| 长文本 → 总结 | 80% | low | 自动执行 |
+| URL → 打开 | 60% | medium | 等确认（安全考虑）|
+| 系统服务异常 → 诊断 | 75% | medium~high | 等确认 |
+
+置信度会被 `FeedbackTracker` 动态调整（±15% 范围内）。
+
+### 11.4 反馈闭环详解
+
+用户对每次建议的行为被记录为四种类型：
+
+| 用户行为 | 置信度影响 | 含义 |
+|---------|-----------|------|
+| accepted | +0.05 | 用户接受了建议 |
+| ignored | -0.02 | 用户没有回应（超时）|
+| dismissed | -0.05 | 用户关闭了弹窗 |
+| blocked | -0.20 | 用户点了"别烦我" |
+
+**抑制机制**：如果某类建议最近 10 次中 blocked > 50%，则自动抑制该类建议。
+
+**数据持久化**：`.feedback_history.json`，最多保留 200 条记录。
+
+### 11.5 信号流总览
+
+```
+perception_bridge.auto_action  →  AutoExecutor.execute_async()
+perception_bridge.proactive_suggestion  →  ChatWindow.show_proactive_suggestion()
+AutoExecutor.result_ready  →  ChatWindow.show_auto_result()
+AutoExecutor.confirmation_needed  →  ChatWindow.show_proactive_suggestion()
+```
+
+### 11.6 与"助手"的本质区别
+
+| 维度 | 被动助手 | 自主 Agent（本项目）|
+|------|---------|-------------------|
+| 触发方式 | 用户输入指令 | 环境信号自动触发 |
+| 决策方式 | 无决策，直接执行 | 置信度+风险评估后决策 |
+| 执行方式 | 用户确认后执行 | 低风险自动执行 |
+| 反馈机制 | 无 | 用户行为追踪+置信度调整 |
+| 核心能力 | 执行 | 感知+决策+执行+反馈 |
