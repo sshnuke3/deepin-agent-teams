@@ -16,6 +16,7 @@ from PyQt5.QtCore import Qt
 from gui.floating_ball import FloatingBall
 from gui.chat_window import ChatWindow
 from gui.tray_icon import TrayIcon
+from gui.perception_bridge import PerceptionBridge
 
 
 def load_scenarios():
@@ -58,6 +59,32 @@ def main():
     ball.clicked.connect(toggle_chat)
     tray.show_window.connect(toggle_chat)
     tray.quit_app.connect(lambda: (chat_window.close(), app.quit()))
+
+    # ---- 感知桥接 ----
+    bridge = PerceptionBridge()
+
+    # 剪贴板变化 → 悬浮球变色
+    bridge.clipboard_changed.connect(
+        lambda text: ball.show_perception_hint("clipboard", "📋")
+    )
+
+    # 窗口变化 → 悬浮球变色
+    bridge.window_changed.connect(
+        lambda title, cls: ball.show_perception_hint("window", "🪟")
+    )
+
+    # 系统告警 → 悬浮球变色
+    bridge.system_alert.connect(
+        lambda svc, desc: ball.show_perception_hint("alert", "⚠️")
+    )
+
+    # 主动建议 → 对话窗口弹出
+    bridge.proactive_suggestion.connect(chat_window.show_proactive_suggestion)
+
+    # 主动建议 → 托盘通知
+    def on_perception_notify(text):
+        tray.show_message_notification("deepin Agent Teams", text[:50] + "...")
+    bridge.proactive_suggestion.connect(on_perception_notify)
 
     # 显示
     ball.show()

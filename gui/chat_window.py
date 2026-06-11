@@ -400,3 +400,38 @@ class ChatWindow(QMainWindow):
             self.hide()
         else:
             super().keyPressEvent(event)
+
+    # ---- 感知主动推荐 ----
+
+    def show_proactive_suggestion(self, text: str):
+        """
+        显示感知层推送的主动建议
+        自动弹出窗口 + 显示消息
+        """
+        # 如果窗口不可见，自动弹出
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        # 显示建议消息（带感知标签）
+        self._add_perception_message(text)
+        self.status_label.setText("🔍 感知触发")
+
+        # 3 秒后恢复状态栏
+        QTimer.singleShot(3000, lambda: self.status_label.setText("就绪"))
+
+    def _add_perception_message(self, text):
+        """添加感知推荐消息（特殊样式，区别于普通 Agent 消息）"""
+        bubble = MessageBubble(text, is_user=False)
+        # 给感知消息加个边框标识
+        for child in bubble.findChildren(QFrame):
+            if child.objectName() == "agentMsgBubble":
+                child.setStyleSheet(child.styleSheet() + """
+                    QFrame {
+                        border-left: 3px solid #4FC3F7;
+                    }
+                """)
+                break
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
+        self._scroll_to_bottom()
