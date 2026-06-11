@@ -88,7 +88,7 @@
 │          │                     │                     │             │
 │  ┌───────▼────────┐    ┌──────▼────────┐    ┌───────▼──────────┐  │
 │  │ 隐私保护模块    │    │ 安全配置模块  │    │  验证器 (Verifier)│  │
-│  │ PrivacyGuard   │    │ SecurityConfig│    │  7 项独立检查    │  │
+│  │ PrivacyGuard   │    │ SecurityConfig│    │  11 项独立检查   │  │
 │  └────────────────┘    └───────────────┘    └──────────────────┘  │
 │                                                                     │
 ├─────────────────────────────────────────────────────────────────────┤
@@ -163,8 +163,7 @@
                 │                       ├── plan（规划）
                 │                       ├── gather（信息采集）
                 │                       ├── analyze（分析）
-                │                       ├── execute（执行）
-                │                       └── respond（响应）
+                │                       └── execute（执行）
                 │
                 ├── 置信度 0.4~0.7 ──▶ 多轮澄清对话
                 │
@@ -593,78 +592,57 @@ class PrivacyGuard:
 系统采用七状态有限状态机管理任务全生命周期，确保每个任务的状态可追踪、可恢复、可审计。
 
 ```
-    ┌─────────┐    claim     ┌──────────┐   start    ┌─────────┐
-    │ PENDING │─────────────▶│ CLAIMED  │──────────▶│ RUNNING │
-    │  待处理  │              │  已认领   │           │  运行中  │
-    └─────────┘              └──────────┘           └────┬────┘
-         ▲                                                │
-         │                              ┌─────────────────┼──────────────────┐
-         │                              ▼                 ▼                  ▼
-         │                     ┌──────────────┐  ┌──────────────┐  ┌──────────────┐
-         │                     │  plan (规划)  │  │ gather (采集)│  │analyze(分析) │
-         │                     └──────┬───────┘  └──────┬───────┘  └──────┬───────┘
-         │                            │                 │                  │
-         │                            └─────────────────┼──────────────────┘
+    ┌─────────┐   claim    ┌──────────┐  plan     ┌──────────┐  ready   ┌─────────┐
+    │ PENDING │──────────▶│ CLAIMED  │─────────▶│ PLANNING │────────▶│ RUNNING │
+    │  待处理  │           │  已认领   │          │  规划中   │         │  运行中  │
+    └─────────┘           └──────────┘          └──────────┘         └────┬────┘
+         ▲                                                                │
+         │                              ┌─────────────────┬───────────────┤
+         │                              ▼                 ▼               ▼
+         │                     ┌──────────────┐  ┌──────────────┐ ┌──────────────┐
+         │                     │gather (采集)  │  │analyze(分析) │ │execute(执行) │
+         │                     └──────┬───────┘  └──────┬───────┘ └──────┬───────┘
+         │                            │                 │               │
+         │                            └─────────────────┼───────────────┘
          │                                              ▼
-         │                                     ┌──────────────┐
-         │                                     │execute(执行) │
-         │                                     └──────┬───────┘
-         │                                              │
-         │                                              ▼
-         │                                     ┌──────────────┐
-         │                                     │respond(响应) │
-         │                                     └──────┬───────┘
-         │                                              │
-         ▼                                              ▼
-    ┌─────────┐   verify_fail ┌──────────┐  verify_pass ┌───────────┐
-    │ FAILED  │◀──────────────│ VERIFIED │─────────────▶│ COMPLETED │
-    │  失败   │               │  已验证   │              │  已完成    │
-    └─────────┘               └──────────┘              └───────────┘
+         ▼                                      ┌──────────────┐
+    ┌─────────┐  verify_fail  ┌──────────┐     │  VERIFIED    │  verify_pass  ┌───────────┐
+    │ FAILED  │◀─────────────│  RETRY   │◀────│  已验证      │────────────▶│ COMPLETED │
+    │  失败   │  retry≤3     │  重试中   │     └──────────────┘             │  已完成    │
+    └─────────┘               └──────────┘                                  └───────────┘
 ```
 
 状态转移规则硬编码于 `TaskStateMachine` 中：
 
 ```python
 class TaskState(Enum):
-    PENDING   = "pending"
-    CLAIMED   = "claimed"
-    RUNNING   = "running"
-    VERIFIED  = "verified"
-    COMPLETED = "completed"
-    FAILED    = "failed"
-    CANCELLED = "cancelled"
+    PENDING   = "pending"      # 入队，未分配
+    CLAIMED   = "claimed"       # Worker 认领
+    PLANNING  = "planning"      # 规划阶段：生成步骤计划
+    RUNNING   = "running"       # 执行中
+    VERIFIED  = "verified"      # Verifier 通过
+    COMPLETED = "completed"     # 流程终结
+    FAILED    = "failed"        # 不可恢复失败
+    RETRY     = "retry"         # 打回重做
 
-class RUNNINGPhase(Enum):
-    PLAN    = "plan"
-    GATHER  = "gather"
-    ANALYZE = "analyze"
-    EXECUTE = "execute"
-    RESPOND = "respond"
+MAX_RETRY = 3
 
 # 状态转移表（硬编码，确保安全）
 TRANSITIONS = {
-    TaskState.PENDING:   [TaskState.CLAIMED, TaskState.CANCELLED],
-    TaskState.CLAIMED:   [TaskState.RUNNING, TaskState.CANCELLED],
-    TaskState.RUNNING:   [TaskState.VERIFIED, TaskState.FAILED],
-    TaskState.VERIFIED:  [TaskState.COMPLETED, TaskState.FAILED, TaskState.RUNNING],
+    TaskState.PENDING:   [TaskState.CLAIMED],
+    TaskState.CLAIMED:   [TaskState.PLANNING],
+    TaskState.PLANNING:  [TaskState.RUNNING, TaskState.FAILED],
+    TaskState.RUNNING:   [TaskState.VERIFIED, TaskState.FAILED, TaskState.RETRY],
+    TaskState.VERIFIED:  [TaskState.COMPLETED, TaskState.FAILED],
     TaskState.COMPLETED: [],
     TaskState.FAILED:    [TaskState.PENDING],  # 允许重试
-    TaskState.CANCELLED: [],
-}
-
-# RUNNING 子阶段转移
-PHASE_TRANSITIONS = {
-    RUNNINGPhase.PLAN:    [RUNNINGPhase.GATHER],
-    RUNNINGPhase.GATHER:  [RUNNINGPhase.ANALYZE],
-    RUNNINGPhase.ANALYZE: [RUNNINGPhase.EXECUTE],
-    RUNNINGPhase.EXECUTE: [RUNNINGPhase.RESPOND],
-    RUNNINGPhase.RESPOND: [],  # 结束后进入 VERIFIED
+    TaskState.RETRY:     [TaskState.RUNNING],   # 重试回到 RUNNING
 }
 ```
 
 ### 4.2 RUNNING 阶段分解
 
-RUNNING 状态内部细分为五个子阶段，每个子阶段有明确的职责、工具白名单和 Token 预算：
+RUNNING 状态内部细分为四个子阶段，每个子阶段有明确的职责、工具白名单和 Token 预算：
 
 | 子阶段 | 职责 | 工具白名单 | Token 预算 |
 |--------|------|-----------|-----------|
@@ -672,7 +650,6 @@ RUNNING 状态内部细分为五个子阶段，每个子阶段有明确的职责
 | gather | 采集必要信息（搜索、OCR、文件读取） | search, file_read, ocr | 2000 |
 | analyze | 分析采集到的信息，形成结论 | python_eval | 1500 |
 | execute | 执行具体操作（发送、安装、配置） | shell, package, dbus | 1000 |
-| respond | 生成用户友好的结果报告 | [] | 800 |
 
 ```python
 PHASE_CONFIG = {
@@ -700,12 +677,6 @@ PHASE_CONFIG = {
         "timeout_sec": 120,
         "description": "执行具体操作"
     },
-    RUNNINGPhase.RESPOND: {
-        "allowed_tools": [],
-        "token_budget": 800,
-        "timeout_sec": 30,
-        "description": "生成结果报告"
-    }
 }
 ```
 
@@ -809,66 +780,89 @@ class Orchestrator:
 
 ### 4.4 验证器 (Verifier)
 
-验证器包含七项独立检查，全部通过后任务才标记为 COMPLETED：
+验证器包含 **11 项**独立检查（4 项基础 + 3 项安全 + 2 项规划 + 2 项上下文），全部通过后任务才标记为 COMPLETED：
 
 ```python
 class Verifier:
-    """任务结果验证器 — 7 项独立检查"""
+    """任务结果验证器 — 11 项独立检查"""
 
     async def verify(self, task: Task, result: dict) -> Dict[str, bool]:
         """执行全部验证检查"""
         return {
-            "completeness":   self._check_completeness(task, result),
-            "consistency":    self._check_consistency(result),
-            "no_hallucination": await self._check_hallucination(result),
-            "tool_usage":     self._check_tool_usage(task, result),
-            "security":       self._check_security(task, result),
-            "privacy":        self._check_privacy(result),
-            "format":         self._check_format(result),
+            # 基础检查（1-4）
+            "deliverable_exists":     self._check_deliverable_exists(task, result),
+            "functional_correctness": self._check_functional_correctness(task, result),
+            "trace_integrity":        self._check_trace_integrity(task, result),
+            "error_free":             self._check_error_free(result),
+            # 安全检查（5-7）
+            "tool_compliance":        self._check_tool_compliance(task, result),
+            "token_budget":           self._check_token_budget(task, result),
+            "dangerous_ops_confirmed": self._check_dangerous_ops_confirmed(task, result),
+            # 规划检查（8-9）
+            "plan_completeness":      self._check_plan_completeness(task, result),
+            "plan_coherence":         self._check_plan_coherence(task, result),
+            # 上下文检查（10-11）
+            "context_overflow":       self._check_context_overflow(task, result),
+            "summary_quality":        self._check_summary_quality(task, result),
         }
 
-    def _check_completeness(self, task: Task, result: dict) -> bool:
-        """检查任务目标是否全部完成"""
-        required = task.requirements
-        completed = result.get("completed_requirements", [])
-        return all(r in completed for r in required)
+    def _check_deliverable_exists(self, task: dict, result: dict) -> bool:
+        """检查 1：交付物存在且非空"""
+        return result is not None and result != {} and result != []
 
-    def _check_consistency(self, result: dict) -> bool:
-        """检查结果内部一致性（无自相矛盾）"""
-        statements = result.get("statements", [])
-        # 使用模型辅助判断一致性
-        return len(statements) > 0  # 简化版
+    def _check_functional_correctness(self, task: dict, result: dict) -> bool:
+        """检查 2：按 task type 分叉验收"""
+        # code_analysis → 需 lines 字段
+        # shell_executor → 需 command + exit_code
+        # file_reader → 需 content 或 size
+        # web_search → 需 results 列表
+        # ast_parser → 需 ast 字段
+        ...
 
-    async def _check_hallucination(self, result: dict) -> bool:
-        """检查结果是否包含幻觉内容"""
-        # 核实关键事实是否来源于实际采集数据
-        sources = result.get("sources", [])
-        claims = result.get("claims", [])
-        for claim in claims:
-            if not any(self._evidence_supports(source, claim) for source in sources):
-                return False
-        return True
+    def _check_trace_integrity(self, task: dict, result: dict) -> bool:
+        """检查 3：trace 字段完整（task_id + capabilities_used 存在）"""
+        return "task_id" in result and "capabilities_used" in result
 
-    def _check_tool_usage(self, task: Task, result: dict) -> bool:
-        """检查工具调用是否符合白名单"""
-        used_tools = set(result.get("tools_used", []))
-        phase = task.current_phase
-        allowed = set(PHASE_CONFIG[phase]["allowed_tools"])
-        return used_tools.issubset(allowed)
+    def _check_error_free(self, result: dict) -> bool:
+        """检查 4：无未预期错误（E_TIMEOUT/E_BLOCKED 除外）"""
+        error = result.get("error_type", "OK")
+        return error in ("OK", "E_TIMEOUT", "E_BLOCKED")
 
-    def _check_security(self, task: Task, result: dict) -> bool:
-        """检查执行过程是否有越权行为"""
-        return not result.get("security_violations", [])
+    def _check_tool_compliance(self, task: dict, result: dict) -> bool:
+        """检查 5：工具白名单合规"""
+        used = set(result.get("tools_used", []))
+        allowed = set(get_allowed_tools(task.state, task.phase))
+        return used.issubset(allowed)
 
-    def _check_privacy(self, result: dict) -> bool:
-        """检查输出中是否包含未脱敏的敏感数据"""
-        output = json.dumps(result.get("output", ""), ensure_ascii=False)
-        return not PrivacyGuard().contains_sensitive(output)
+    def _check_token_budget(self, task: dict, result: dict) -> bool:
+        """检查 6：Token 预算合规"""
+        return result.get("tokens_used", 0) <= get_token_budget(task.state, task.phase)
 
-    def _check_format(self, result: dict) -> bool:
-        """检查输出格式是否符合规范"""
-        required_fields = ["output", "summary"]
-        return all(f in result for f in required_fields)
+    def _check_dangerous_ops_confirmed(self, task: dict, result: dict) -> bool:
+        """检查 7：危险操作均已确认"""
+        return result.get("dangerous_ops_confirmed", True)
+
+    def _check_plan_completeness(self, task: dict, result: dict) -> bool:
+        """检查 8：计划中所有步骤标记完成"""
+        plan = result.get("plan", {})
+        steps = plan.get("steps", [])
+        return all(s.get("status") == "done" for s in steps)
+
+    def _check_plan_coherence(self, task: dict, result: dict) -> bool:
+        """检查 9：计划依赖关系自洽（无循环依赖）"""
+        plan = result.get("plan", {})
+        steps = plan.get("steps", [])
+        # DFS 检测循环依赖
+        ...
+
+    def _check_context_overflow(self, task: dict, result: dict) -> bool:
+        """检查 10：上下文 token 未超出窗口"""
+        return result.get("context_tokens", 0) <= CONTEXT_LIMIT * 1.5
+
+    def _check_summary_quality(self, task: dict, result: dict) -> bool:
+        """检查 11：子Agent摘要非空且非过长"""
+        summary = result.get("summary", "")
+        return 0 < len(summary) <= 2000
 ```
 
 ### 4.5 冲突解决与资源锁定
@@ -1181,7 +1175,7 @@ class SystemDoctorScenario:
         # Phase 4: 分析诊断结果 (analyze)
         analysis = await self._analyze_results(diagnostics, category)
 
-        # Phase 5: 生成报告并建议修复 (respond)
+        # Phase 5: 生成报告并建议修复
         report = self._format_report(category, diagnostics, analysis)
 
         if analysis.get("fixable"):

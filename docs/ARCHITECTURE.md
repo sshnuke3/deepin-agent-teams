@@ -125,7 +125,7 @@ deepin-agent-teams/
 └── config.py                        # 全局配置
 ```
 
-代码统计：~25,800 行 Python，77 个文件；~230 行 JSON（8 个文件）；154 行 Prompt 模板（10 个文件）。
+代码统计：~27,000 行 Python，82 个文件；~230 行 JSON（8 个文件）；154 行 Prompt 模板（10 个文件）。
 
 ---
 
@@ -137,11 +137,14 @@ deepin-agent-teams/
 
 ```
 PENDING ──▶ CLAIMED ──▶ PLANNING ──▶ RUNNING ──▶ VERIFIED ──▶ COMPLETED
-                            │            │           │
-                            │            │           ▼
-                            │            │        FAILED ──▶ (retry) ──▶ RUNNING
-                            ▼            ▼
-                        CANCELLED     FAILED
+                                             │           │
+                                             │           ▼
+                                             │        FAILED ──▶ (retry) ──▶ RUNNING
+                                             ▼
+                                            RETRY（≤3次）
+                                             │
+                                             ▼
+                                           RUNNING
 ```
 
 **PLANNING 状态**（新增）：Worker 认领后必须先生成结构化执行计划才能进入 RUNNING。
@@ -150,14 +153,13 @@ PENDING ──▶ CLAIMED ──▶ PLANNING ──▶ RUNNING ──▶ VERIFIE
 - 超时：30秒，超时自动降级
 - Planner 模块：生成步骤列表 + TodoManager 跟踪进度 + nag reminder
 
-RUNNING 状态内部细分为五个子阶段：
+RUNNING 状态内部细分为四个子阶段：
 
 ```
 RUNNING:
-  gather ──▶ analyze ──▶ execute ──▶ respond
+  gather ──▶ analyze ──▶ execute
 ```
 
-> 注：`plan` 阶段已移至独立的 PLANNING 状态
 
 ### 3.2 每阶段工具白名单
 
@@ -167,7 +169,6 @@ RUNNING:
 | RUNNING:gather | search, file_read, ocr, clipboard_read, window_list |
 | RUNNING:analyze | python_eval |
 | RUNNING:execute | shell, package, dbus_call, file_write |
-| RUNNING:respond | （无） |
 
 ### 3.3 每阶段 Token 预算
 
@@ -177,7 +178,6 @@ RUNNING:
 | gather | 2000 |
 | analyze | 1500 |
 | execute | 1000 |
-| respond | 800 |
 
 ### 3.4 验证器（Verifier）
 
@@ -241,7 +241,6 @@ execute_task(task)
   │     ├── gather: 采集信息
   │     ├── analyze: 分析结果
   │     ├── execute: 执行操作
-  │     └── respond: 生成报告
   ├── 4. RUNNING → VERIFIED: 11 项验证检查
   ├── 5. VERIFIED → COMPLETED (或 FAILED → retry)
   └── 全程 Trace 记录 + Checkpoint + OTel Span
