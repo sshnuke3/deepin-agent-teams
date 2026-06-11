@@ -18,6 +18,7 @@ from perception.clipboard_monitor import get_clipboard_text
 from perception.window_manager import get_active_window, get_window_classification
 from perception.system_monitor import get_system_summary
 from perception.context_engine import ContextEngine
+from gui.decision_engine import DecisionEngine, Decision
 
 
 class PerceptionBridge(QObject):
@@ -31,11 +32,14 @@ class PerceptionBridge(QObject):
     clipboard_changed = pyqtSignal(str)        # 剪贴板内容变化
     window_changed = pyqtSignal(str, str)      # (窗口标题, 应用分类)
     system_alert = pyqtSignal(str, str)        # (异常类型, 描述)
-    proactive_suggestion = pyqtSignal(str)     # 主动推荐文本
+    proactive_suggestion = pyqtSignal(str)     # 主动推荐文本（需要用户确认）
+    auto_action = pyqtSignal(object)           # 自动执行结果（Decision对象）
 
-    def __init__(self, parent=None):
+    def __init__(self, decision_engine=None, feedback_tracker=None, parent=None):
         super().__init__(parent)
         self.context_engine = ContextEngine()
+        self.decision_engine = decision_engine or DecisionEngine(feedback_tracker)
+        self.feedback_tracker = feedback_tracker
         self._last_clipboard_hash = ""
         self._last_window_title = ""
         self._last_system_ok = True
@@ -76,38 +80,11 @@ class PerceptionBridge(QObject):
             pass
 
     def _suggest_for_clipboard(self, text: str):
-        """根据剪贴板内容生成主动建议"""
-        text_lower = text.lower().strip()
-
-        # 英文内容 → 翻译/总结
-        ascii_count = sum(1 for c in text if ord(c) < 128)
-        if ascii_count > len(text) * 0.7 and len(text) > 50:
-            self.proactive_suggestion.emit(
-                "🔍 检测到您复制了一段英文内容，需要翻译还是总结？"
-            )
+        """通过决策引擎处理剪贴板内容"""
+        decision = self.decision_engine.decide_clipboard(text)
+        if decision.action == "ignore":
             return
-
-        # URL → 打开/下载/摘要
-        if text_lower.startswith("http://") or text_lower.startswith("https://"):
-            self.proactive_suggestion.emit(
-                "🔗 检测到您复制了一个链接，需要打开还是下载？"
-            )
-            return
-
-        # 代码片段 → 分析
-        code_keywords = ["def ", "class ", "import ", "function ", "var ", "const ",
-                         "SELECT ", "FROM ", "WHERE ", "<div", "console.log"]
-        if any(kw in text for kw in code_keywords):
-            self.proactive_suggestion.emit(
-                "💻 检测到您复制了代码片段，需要分析还是优化？"
-            )
-            return
-
-        # 长文本 → 总结
-        if len(text) > 200:
-            self.proactive_suggestion.emit(
-                "📝 检测到您复制了一段较长的文本，需要总结要点吗？"
-            )
+        self._emit_decision(decision)
 
     # ---- 窗口感知 ----
     def _check_window(self):
@@ -127,43 +104,33 @@ class PerceptionBridge(QObject):
             pass
 
     def _suggest_for_window(self, title: str, classification: str, app_class: str = ""):
-        """根据当前窗口生成主动建议"""
-        title_lower = title.lower()
-        app_lower = app_class.lower()
+        """通过决策引擎处理窗口变化"""
+        decision = self.decision_engine.decide_window(title, classification, app_class)
+        if decision.action == "ignore":
+            return
+        self._emit_decision(decision)
 
-        # Python 文件
-        if title_lower.endswith(".py") or "python" in app_lower:
-            self.proactive_suggestion.emit(
-                f"🐍 检测到您正在查看 Python 代码，需要代码分析还是优化建议？"
-            )
+    def _emit_decision(self, decision):
+        """根据决策结果发射对应信号"""
+        # 检查是否被用户抑制
+        if self.feedback_tracker and self.feedback_tracker.should_suppress(decision.action):
             return
 
-        # 其他代码文件
-        code_exts = [".js", ".ts", ".java", ".c", ".cpp", ".go", ".rs", ".sh", ".html", ".css"]
-        if any(title_lower.endswith(ext) for ext in code_exts):
-            self.proactive_suggestion.emit(
-                f"💻 检测到您正在查看代码文件，需要分析还是优化建议？"
-            )
-            return
-
-        # 邮件客户端
-        if classification == "email" or "mail" in title_lower or "邮件" in title_lower:
-            self.proactive_suggestion.emit(
-                "📧 检测到您正在处理邮件，需要帮忙起草回复吗？"
-            )
-            return
-
-        # 终端
-        if classification == "terminal" or "terminal" in app_lower:
-            # 不要太频繁打扰终端用户
-            pass
-
-        # 文档
-        doc_exts = [".doc", ".docx", ".pdf", ".md", ".txt"]
-        if any(title_lower.endswith(ext) for ext in doc_exts):
-            self.proactive_suggestion.emit(
-                "📄 检测到您正在阅读文档，需要总结要点吗？"
-            )
+        if decision.auto_execute:
+            # 自动执行：通知 AutoExecutor
+            self.auto_action.emit(decision)
+        else:
+            # 需要用户确认：生成建议文本
+            hints = {
+                "translate": "🔍 检测到英文内容，需要翻译吗？",
+                "summarize": "📝 检测到长文本，需要总结要点吗？",
+                "analyze_code": "💻 检测到代码，需要分析吗？",
+                "open_url": "🔗 检测到链接，需要打开吗？",
+                "suggest_reply": "📧 检测到邮件，需要帮忙回复吗？",
+                "diagnose": f"⚠️ 检测到服务异常（{decision.context.get('service', '')}），需要诊断吗？",
+            }
+            hint = hints.get(decision.action, f"🔍 {decision.reasoning}")
+            self.proactive_suggestion.emit(hint)
 
     # ---- 系统感知 ----
     def _check_system(self):
@@ -174,7 +141,6 @@ class PerceptionBridge(QObject):
             if not summary:
                 return
 
-            # 检查关键服务
             services = summary.get("services", {})
             for svc_name, svc_info in services.items():
                 if isinstance(svc_info, dict):
@@ -184,9 +150,9 @@ class PerceptionBridge(QObject):
                             self._last_system_ok = False
                             desc = svc_info.get("description", svc_name)
                             self.system_alert.emit(svc_name, f"服务异常：{desc}")
-                            self.proactive_suggestion.emit(
-                                f"⚠️ 检测到系统服务异常（{svc_name}），需要自动诊断吗？"
-                            )
+                            # 通过决策引擎处理
+                            decision = self.decision_engine.decide_system(svc_name, desc)
+                            self._emit_decision(decision)
                             return
 
             self._last_system_ok = True

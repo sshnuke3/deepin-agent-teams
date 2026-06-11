@@ -435,3 +435,28 @@ class ChatWindow(QMainWindow):
                 break
         self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
         self._scroll_to_bottom()
+
+    def show_auto_result(self, text: str):
+        """
+        显示自动执行的结果
+        区别于主动建议：这是 agent 已经完成的操作结果
+        """
+        if not self.isVisible():
+            self.show()
+            self.raise_()
+            self.activateWindow()
+
+        bubble = MessageBubble(text, is_user=False)
+        # 自动执行结果用绿色左边框
+        for child in bubble.findChildren(QFrame):
+            if child.objectName() == "agentMsgBubble":
+                child.setStyleSheet(child.styleSheet() + """
+                    QFrame {
+                        border-left: 3px solid #81C784;
+                    }
+                """)
+                break
+        self.chat_layout.insertWidget(self.chat_layout.count() - 1, bubble)
+        self._scroll_to_bottom()
+        self.status_label.setText("✅ 自动执行完成")
+        QTimer.singleShot(3000, lambda: self.status_label.setText("就绪"))
