@@ -98,21 +98,30 @@ Orchestrator（OpenClaw Agent）
 ### 路由策略
 
 ```python
-# model_router.py
+# agents/model_router.py
 
-def get_model_for_task(task_type: str) -> str:
+class ModelRouter:
     """
-    任务类型 → 模型选择
+    双文心模型路由器
+    路由逻辑（遵循 config.py MODEL_ROUTING 表）：
+        task_type → "lite" → ernie-lite
+        task_type → "strong" → ernie-3.5
+        两者均失败 → MiniMax（第三方备选）
     """
-    lite_tasks = {"email", "simple_query", "status_check"}
-    pro_tasks = {"code_analysis", "literature", "complex_reasoning", "system_diagnosis"}
 
-    if task_type in lite_tasks:
-        return "ernie-lite"   # 快速、便宜
-    elif task_type in pro_tasks:
-        return "ernie-3.5"   # 强大、昂贵
-    else:
-        return "ernie-lite"   # 默认轻量
+    def chat(self, message: str, task_type: str = "general", **kwargs) -> dict:
+        """
+        统一聊天接口，根据 task_type 自动路由到合适的模型
+        Returns: {"success": bool, "result": str, "model": str, "level": str, "error": str}
+        """
+        level = MODEL_ROUTING.get(task_type, "lite")
+        model_name = MODEL_STRONG if level == "strong" else MODEL_LITE
+        # 尝试指定模型 → 降级 lite → MiniMax → Fallback
+        ...
+
+router = ModelRouter()
+resp = router.chat("分析这段代码", task_type="code")
+print(resp["result"])
 ```
 
 ### 降级策略
@@ -157,14 +166,24 @@ deepin 25 桌面环境
 ```python
 # perception/privacy_guard.py
 
-SENSITIVE_PATTERNS = [
-    r"手机号[：:]?\d{11}",           # 手机号
-    r"身份证[：:]?\d{17}[\dXx]",     # 身份证
-    r"密码[：:]\S+",                  # 密码
-    r"\d{16,19}",                    # 银行卡号
-    r"[A-Za-z0-9._%+-]+@[a-z]+\.[a-z]+",  # 邮箱
-    r"地址[：:][^\s]{10,}",          # 详细地址
-]
+class PrivacyGuard:
+    # 敏感数据正则模式（编译后，支持6类）
+    PATTERNS = {
+        "phone": re.compile(r'(?<!\d)1[3-9]\d{9}(?!\d)'),
+        "id_card": re.compile(r'(?<!\d)[1-9]\d{5}(?:19|20)\d{2}(?:0[1-9]|1[0-2])(?:0[1-9]|[12]\d|3[01])\d{3}[\dXx](?!\d)'),
+        "bank_card": re.compile(r'(?<!\d)[1-9]\d{15,18}(?!\d)'),
+        "email": re.compile(r'[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}'),
+        "password_kw": re.compile(r'(?:密码|password|passwd|pwd|口令|令牌|token)\s*[:=：]\s*\S+', re.IGNORECASE),
+        "ip_addr": re.compile(r'(?<!\d)(?:(?:25[0-5]|2[0-4]\d|[01]?\d\d?)\.){3}(?:25[0-5]|2[0-4]\d|[01]?\d\d?)(?!\d)'),
+    }
+
+    def scan_sensitive(self, text: str) -> List[SensitiveMatch]:
+        """扫描文本中的敏感数据"""
+        ...
+
+    def mask_text(self, text: str) -> str:
+        """对文本中的敏感数据进行脱敏"""
+        ...
 ```
 
 ---
