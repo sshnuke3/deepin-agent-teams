@@ -1,6 +1,6 @@
 # deepin-agent-teams
 
-> 🤖 **多智能体协作系统** — 第十期飞桨黑客松 · 统信 × 百度飞桨 · 进阶任务 #27
+> 🤖 **多智能体协作系统** — [第十期飞桨黑客松](https://www.deepin.org/zh/paddle-hackathon-10th-deepin/) · 统信 × 百度飞桨 · [进阶任务 #27](https://github.com/PaddlePaddle/community/blob/master/hackathon/hackathon_10th/%E3%80%90Hackathon_10th%E3%80%91%E6%96%87%E5%BF%83%E5%90%88%E4%BD%9C%E4%BC%99%E4%BC%B4%E4%BB%BB%E5%8A%A1%E5%90%88%E9%9B%86.md#%E7%BB%9F%E4%BF%A1deepin-agent-teams-%E6%99%BA%E8%83%BD%E4%BD%93%E5%9B%A2%E9%98%9F%E5%8D%8F%E4%BD%9C%E7%B3%BB%E7%BB%9F)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-deepin%2025-orange?style=flat-square)
