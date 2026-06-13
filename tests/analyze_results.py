@@ -34,7 +34,7 @@ for line in lines:
         continue
     try:
         results.append(json.loads(line))
-    except:
+    except Exception:
         continue
 
 if not results:

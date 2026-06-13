@@ -61,6 +61,11 @@ class OrchestratorV3:
     """
 
     def __init__(self, verbose: bool = True):
+        import warnings
+        warnings.warn(
+            "OrchestratorV3 已废弃，请使用 agents.orchestrator.Orchestrator",
+            DeprecationWarning, stacklevel=2
+        )
         self.verbose = verbose
         self.registry = AgentRegistry()
         self.verifier = Verifier()
@@ -324,8 +329,9 @@ Worker 执行结果：
             try:
                 proc.terminate()
                 proc.wait(timeout=3)
-            except:
-                pass
+            except Exception:
+                import logging
+                logging.getLogger(__name__).warning("Failed to terminate worker %s", role)
 
     def run(self, user_request: str, project_path: str = "") -> dict:
         """主流程"""

@@ -8,13 +8,14 @@ import os
 import time
 import subprocess
 import re
+from typing import Optional
 
 
 TASK_FILE = "/tmp/agent_task_coder.json"
 RESULT_FILE = "/tmp/agent_result_coder.json"
 
 
-def read_task():
+def read_task() -> Optional[dict]:
     if os.path.exists(TASK_FILE):
         with open(TASK_FILE, 'r') as f:
             data = f.read()
@@ -23,16 +24,18 @@ def read_task():
     return None
 
 
-def write_result(result):
+def write_result(result: dict) -> None:
     with open(RESULT_FILE, 'w') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
 
 
 def run_command(cmd: str, timeout: int = 30) -> str:
     """执行 Shell 命令"""
+    import shlex
     try:
+        cmd_parts = shlex.split(cmd)
         result = subprocess.run(
-            cmd, shell=True, capture_output=True, text=True, timeout=timeout
+            cmd_parts, capture_output=True, text=True, timeout=timeout
         )
         output = f"[EXIT {result.returncode}]\n"
         if result.stdout:
@@ -71,7 +74,8 @@ def analyze_python_file(fp: str, project_path: str) -> dict:
         lines = content.split('\n')
         
         # 尝试执行语法检查
-        syntax_check = run_command(f"python3 -m py_compile {fp} 2>&1")
+        import shlex
+        syntax_check = run_command(f"python3 -m py_compile {shlex.quote(fp)}")
         
         return {
             "file": rel_path,
@@ -151,7 +155,7 @@ def run_coder(task: dict) -> dict:
     }
 
 
-def main():
+def main() -> None:
     print(f"[Coder] 子进程启动 PID={os.getpid()}", flush=True)
     print("READY", flush=True)
     

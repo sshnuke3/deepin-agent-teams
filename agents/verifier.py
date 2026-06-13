@@ -42,7 +42,8 @@ class Verdict:
     def is_pass(self) -> bool:
         return self.result == "PASS"
 
-    def to_dict(self) -> dict:
+    def to_dict(self) -> Dict[str, Any]:
+        """返回验收决策的字典格式"""
         return {
             "verdict": self.result,
             "task_id": self.task_id,
@@ -63,7 +64,7 @@ class Verifier:
         print(f"打回原因: {result.causes}")
     """
 
-    def __init__(self, model: str = "ernie-lite"):
+    def __init__(self, model: str = "ernie-lite") -> None:
         self.model = model
 
     def verify(self, task: dict, worker_result: dict) -> Verdict:

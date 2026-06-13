@@ -148,7 +148,7 @@ class MCPAdapter:
         if not cmd:
             raise ValueError("缺少 command 参数")
         timeout = params.get("timeout", 30)
-        result = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=timeout)
+        result = subprocess.run(cmd, shell=False, capture_output=True, text=True, timeout=timeout)
         return {
             "stdout": result.stdout[:5000],
             "stderr": result.stderr[:2000],
@@ -293,7 +293,7 @@ class MCPAdapter:
                                     "matches": count,
                                     "preview": preview.strip(),
                                 })
-                    except:
+                    except Exception:
                         continue
                 if len(results) >= 20:
                     break
@@ -321,7 +321,7 @@ class MCPAdapter:
             monitor = ClipboardMonitor()
             text = monitor.get_text()
             return {"text": text[:2000] if text else "", "has_text": bool(text)}
-        except:
+        except Exception:
             return {"text": "", "has_text": False, "error": "剪贴板不可用"}
 
     def _handle_active_window(self) -> Dict:
@@ -335,7 +335,7 @@ class MCPAdapter:
                     "type": get_window_classification(win.title, win.class_name),
                 }
             return {"title": "", "class": "", "type": "unknown"}
-        except:
+        except Exception:
             return {"error": "窗口信息不可用"}
 
     def _handle_screenshot_ocr(self) -> Dict:
@@ -343,7 +343,7 @@ class MCPAdapter:
             from perception.screen_ocr import ocr_screen
             result = ocr_screen()
             return result
-        except:
+        except Exception:
             return {"error": "OCR 不可用", "success": False}
 
     def _handle_http_get(self, url: str, max_chars: int = 5000) -> Dict:
@@ -358,8 +358,8 @@ class MCPAdapter:
 
     def _handle_install(self, package: str) -> Dict:
         result = subprocess.run(
-            f"apt-get install -y {package}",
-            shell=True, capture_output=True, text=True, timeout=120,
+            ["apt-get", "install", "-y", package],
+            capture_output=True, text=True, timeout=120,
         )
         return {"stdout": result.stdout[-1000:], "stderr": result.stderr[-500:], "returncode": result.returncode}
 
@@ -367,9 +367,12 @@ class MCPAdapter:
         allowed = {"start", "stop", "restart", "enable", "disable", "status"}
         if action not in allowed:
             return {"error": f"不允许的操作: {action}，支持: {allowed}"}
+        import shlex
+        if not shlex.split(service) == [service]:
+            return {"error": f"非法的服务名: {service}"}
         result = subprocess.run(
-            f"systemctl {action} {service}",
-            shell=True, capture_output=True, text=True, timeout=30,
+            ["systemctl", action, service],
+            capture_output=True, text=True, timeout=30,
         )
         return {"stdout": result.stdout[:1000], "stderr": result.stderr[:500], "returncode": result.returncode}
 

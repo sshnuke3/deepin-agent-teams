@@ -15,12 +15,15 @@
 - dismissed → -0.05
 - blocked → -0.20（大幅降低）
 """
+import logging
 import os
 import json
 import time
 from dataclasses import dataclass, asdict
 from typing import Dict, List, Optional
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -142,7 +145,8 @@ class FeedbackTracker:
                 with open(path, "r", encoding="utf-8") as f:
                     data = json.load(f)
                 self.events = [FeedbackEvent(**e) for e in data[-self.max_events:]]
-        except Exception:
+        except Exception as e:
+            logger.warning("Failed to load feedback history: %s", e)
             self.events = []
 
     def _save(self):
@@ -153,5 +157,5 @@ class FeedbackTracker:
             with open(path, "w", encoding="utf-8") as f:
                 json.dump([asdict(e) for e in self.events[-self.max_events:]],
                           f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to save feedback history: %s", e)

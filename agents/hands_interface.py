@@ -126,7 +126,7 @@ class LocalHands(HandsInterface):
     这是当前 deepin-agent-teams 的默认执行方式。
     """
 
-    def __init__(self, worker=None):
+    def __init__(self, worker: Any = None) -> None:
         self._worker = worker
         self._capabilities = [
             "file_reader", "dir_scanner", "file_writer",
@@ -136,7 +136,7 @@ class LocalHands(HandsInterface):
             "doc_generator", "markdown_writer",
         ]
 
-    def set_worker(self, worker):
+    def set_worker(self, worker: Any) -> None:
         """注入 Worker 实例"""
         self._worker = worker
 
@@ -201,7 +201,7 @@ class DockerHands(HandsInterface):
     适合多租户 SaaS 场景。
     """
 
-    def __init__(self, image: str = "python:3.12-slim"):
+    def __init__(self, image: str = "python:3.12-slim") -> None:
         self._image = image
 
     def execute(self, request: ExecuteRequest) -> ExecuteResponse:
@@ -233,7 +233,7 @@ class MockHands(HandsInterface):
     用于编排层的单元测试和 CI。
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._responses: Dict[str, ExecuteResponse] = {}
         self._call_log: List[ExecuteRequest] = []
         self._default_response = ExecuteResponse(
@@ -241,11 +241,11 @@ class MockHands(HandsInterface):
             result={"mock": True},
         )
 
-    def set_response(self, capability: str, response: ExecuteResponse):
+    def set_response(self, capability: str, response: ExecuteResponse) -> None:
         """预设某个能力的响应"""
         self._responses[capability] = response
 
-    def set_responses(self, responses: Dict[str, Any]):
+    def set_responses(self, responses: Dict[str, Any]) -> None:
         """批量预设响应"""
         for cap, result in responses.items():
             self._responses[cap] = ExecuteResponse(success=True, result=result)
@@ -294,7 +294,7 @@ class HandsFactory:
         return hands_cls(**kwargs)
 
     @classmethod
-    def register(cls, name: str, hands_cls: type):
+    def register(cls, name: str, hands_cls: type) -> None:
         """注册新的 Hands 实现"""
         cls._registry[name] = hands_cls
 

@@ -3,10 +3,13 @@
 从文件、邮件、日志、网络等渠道收集信息
 """
 import os
+import logging
 import subprocess
 import re
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 # Prompt 模板加载
 try:
@@ -36,7 +39,7 @@ class InformationCollector:
     - 邮件内容收集
     """
 
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Dict = None) -> None:
         self.name = "InformationCollector"
         self.config = config or {}
         self.capabilities = [
@@ -93,8 +96,8 @@ class InformationCollector:
                 except (IOError, OSError, UnicodeDecodeError):
                     continue
 
-        except Exception:
-            pass  # 搜索失败返回空结果
+        except Exception as e:
+            logger.warning("search_files failed: %s", e)
 
         results.sort(key=lambda x: x["relevance"], reverse=True)
         return results[:20]
@@ -136,14 +139,14 @@ class InformationCollector:
                             "mtime": datetime.fromtimestamp(stat.st_mtime).isoformat(),
                             "size": stat.st_size
                         })
-                    except:
+                    except Exception:
                         continue
 
             files.sort(key=lambda x: x["mtime"], reverse=True)
             results = files[:limit]
 
         except Exception as e:
-            pass
+            logger.warning("get_recent_files failed: %s", e)
 
         return results
 
@@ -240,8 +243,8 @@ class InformationCollector:
                     "title": window_ctx.get("title"),
                     "relevance": 0.6
                 })
-        except:
-            pass
+        except Exception as e:
+            logger.warning("collect_context window failed: %s", e)
 
         context["sources"].sort(key=lambda x: x.get("relevance", 0), reverse=True)
         return context

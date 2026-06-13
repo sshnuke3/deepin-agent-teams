@@ -33,7 +33,7 @@ import time
 import traceback
 import erniebot
 from dataclasses import dataclass, field, asdict
-from typing import Optional
+from typing import Optional, Dict, List, Any
 
 
 # ========== 配置 ==========
@@ -140,7 +140,7 @@ class ExecutionPlan:
 
 # ========== ERNIE 初始化 ==========
 
-def init_ernie(token: str = None):
+def init_ernie(token: str = None) -> None:
     t = token or ERNIE_TOKEN
     erniebot.api_type = "aistudio"
     erniebot.access_token = t
@@ -403,7 +403,7 @@ class ProductionExecutor:
         global_timeout: int = DEFAULT_GLOBAL_TIMEOUT,
         retry_max: int = DEFAULT_RETRY_MAX,
         verbose: bool = True,
-    ):
+    ) -> None:
         self.task_timeout = task_timeout
         self.global_timeout = global_timeout
         self.retry_max = retry_max
@@ -570,7 +570,7 @@ class ProductionExecutor:
 
 # ========== CLI 主函数 ==========
 
-def parse_args():
+def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description="v4.1 生产级 Sessions-Spawn 多 Agent 编排器",
         formatter_class=argparse.RawDescriptionHelpFormatter,
@@ -599,7 +599,7 @@ def parse_args():
     return parser.parse_args()
 
 
-def main():
+def main() -> None:
     args = parse_args()
 
     global _current_level

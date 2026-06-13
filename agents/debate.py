@@ -103,7 +103,7 @@ class DebateAgent:
     默认使用 LLM 调用。
     """
 
-    def __init__(self, name: str, side: str, model_router=None, system_prompt: str = ""):
+    def __init__(self, name: str, side: str, model_router: Any = None, system_prompt: str = "") -> None:
         """
         Args:
             name: Agent 名称
@@ -220,7 +220,7 @@ class DebateJudge:
     可以使用 Verifier 或 LLM。
     """
 
-    def __init__(self, model_router=None, verifier=None):
+    def __init__(self, model_router: Any = None, verifier: Any = None) -> None:
         self.model_router = model_router
         self.verifier = verifier
 
@@ -338,7 +338,7 @@ class Debate:
         con_agent: DebateAgent = None,
         judge: DebateJudge = None,
         max_rounds: int = 2,
-    ):
+    ) -> None:
         """
         Args:
             pro_agent: 正方 Agent
@@ -397,7 +397,7 @@ class Debate:
 
 def create_debate(
     topic: str,
-    model_router=None,
+    model_router: Any = None,
     max_rounds: int = 2,
     pro_prompt: str = "",
     con_prompt: str = "",

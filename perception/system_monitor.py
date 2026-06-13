@@ -2,12 +2,15 @@
 系统监控模块
 检查服务状态、音频、网络、磁盘等系统状态
 """
+import logging
 import subprocess
 import re
 import os
 from typing import Dict, List, Optional
 from dataclasses import dataclass
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -304,8 +307,8 @@ def get_system_summary() -> Dict:
         with open("/proc/loadavg") as f:
             load = f.read().split()[:3]
             summary["load_average"] = [float(x) for x in load]
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_system_summary /proc/loadavg failed: %s", e)
 
     # 内存使用率
     try:
@@ -317,8 +320,8 @@ def get_system_summary() -> Dict:
                 total = int(total_match.group(1))
                 avail = int(avail_match.group(1))
                 summary["memory_percent"] = round((1 - avail / total) * 100, 1)
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_system_summary /proc/meminfo failed: %s", e)
 
     return summary
 

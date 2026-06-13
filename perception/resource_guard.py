@@ -2,11 +2,14 @@
 资源占用控制器
 监控系统资源使用，在资源紧张时暂停感知模块
 """
+import logging
 import os
 import time
 import threading
 from typing import Dict, Optional, Callable
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -89,8 +92,8 @@ class ResourceGuard:
         for cb in self._pause_callbacks:
             try:
                 cb()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Resource guard pause callback failed: %s", e)
 
     def _resume(self):
         """恢复感知模块"""
@@ -98,8 +101,8 @@ class ResourceGuard:
         for cb in self._resume_callbacks:
             try:
                 cb()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("Resource guard resume callback failed: %s", e)
 
     def on_pause(self, callback: Callable):
         """注册暂停回调"""
@@ -193,7 +196,8 @@ class ResourceGuard:
             # CPU 百分比（简化计算）
             stats["cpu_percent"] = self._calc_cpu_percent()
 
-        except Exception:
+        except Exception as e:
+            logger.warning("get_system_stats failed: %s", e)
             stats["cpu_percent"] = 0
             stats["memory_percent"] = 0
 
@@ -219,7 +223,8 @@ class ResourceGuard:
             if total_delta == 0:
                 return 0.0
             return round((1 - idle_delta / total_delta) * 100, 1)
-        except Exception:
+        except Exception as e:
+            logger.warning("_calc_cpu_percent failed: %s", e)
             return 0.0
 
     def get_report(self) -> Dict:

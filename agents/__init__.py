@@ -44,10 +44,6 @@ from .registry import AgentRegistry
 from .worker_base import BaseWorker, GeneralWorker
 from .worker_v2 import ExtensibleWorker, CapabilityExecutor
 
-# 兼容旧版导入（已废弃，请使用 Orchestrator）
-from .orchestrator_v3 import OrchestratorV3
-from .orchestrator_v4 import OrchestratorV4
-
 __all__ = [
     # 推荐 API
     "Orchestrator",
@@ -75,8 +71,4 @@ __all__ = [
     "GeneralWorker",
     "ExtensibleWorker",
     "CapabilityExecutor",
-
-    # 兼容旧版（已废弃）
-    "OrchestratorV3",
-    "OrchestratorV4",
 ]

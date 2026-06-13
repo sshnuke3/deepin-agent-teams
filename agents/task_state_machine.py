@@ -233,10 +233,12 @@ class TaskStateMachine:
 
     @property
     def state(self) -> TaskState:
+        """当前任务状态"""
         return self._state
 
     @property
     def trace(self) -> List[StateTransition]:
+        """状态跳转历史记录列表"""
         return self._trace
 
     def transition(self, to: TaskState, ctx: Optional[TransitionContext] = None) -> bool:
@@ -446,7 +448,7 @@ class TaskStateMachine:
         print(f"[StateMachine] {self.task_id}: phase {old_phase} → {new_phase}")
         return True
 
-    def request_confirmation(self, tool_name: str, command: str):
+    def request_confirmation(self, tool_name: str, command: str) -> Optional[ConfirmRequest]:
         """
         请求危险操作确认
 
@@ -456,7 +458,7 @@ class TaskStateMachine:
         """
         return self._confirm_guard.check(tool_name, command)
 
-    def record_confirmation(self, request, response):
+    def record_confirmation(self, request: ConfirmRequest, response: ConfirmResponse) -> None:
         """记录用户确认结果"""
         self._confirm_guard.record(request, response)
 

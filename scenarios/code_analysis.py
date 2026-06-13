@@ -2,10 +2,13 @@
 智能代码分析助手场景
 识别代码分析意图 → 收集项目信息 → 分析代码 → 生成报告
 """
+import logging
 import os
 import sys
 import re
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -112,8 +115,8 @@ class CodeAnalysisAssistant:
                     try:
                         size = os.path.getsize(fp)
                         py_files.append((fp, size))
-                    except Exception:
-                        pass
+                    except Exception as e:
+                        logger.warning("Failed to stat file %s: %s", fp, e)
 
         py_files.sort(key=lambda x: x[1], reverse=True)
         top_files = py_files[:max_files]
@@ -127,7 +130,8 @@ class CodeAnalysisAssistant:
             try:
                 with open(fp, 'r', encoding='utf-8', errors='ignore') as f:
                     content = f.read(8000)
-            except Exception:
+            except Exception as e:
+                logger.warning("Failed to read file %s: %s", fp, e)
                 content = "(无法读取)"
 
             analysis = self.creator.analyze_code(rel_path, content)

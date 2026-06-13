@@ -26,7 +26,7 @@ import sys
 import time
 import uuid
 import threading
-from typing import Dict, List, Any, Optional, ContextManager
+from typing import Dict, List, Any, Optional, ContextManager, Generator
 from dataclasses import dataclass, field
 from contextlib import contextmanager
 
@@ -65,10 +65,10 @@ class Span:
         self,
         name: str,
         attributes: Dict[str, Any] = None,
-        otel_span=None,
+        otel_span: Any = None,
         local_span: SpanInfo = None,
         collector: MetricsCollector = None,
-    ):
+    ) -> None:
         self.name = name
         self.attributes = attributes or {}
         self._otel_span = otel_span
@@ -157,7 +157,7 @@ class Tracer:
     OTel 可用时使用 OTel SDK，否则回退到 metrics_collector。
     """
 
-    def __init__(self, service_name: str = "deepin-agent-teams"):
+    def __init__(self, service_name: str = "deepin-agent-teams") -> None:
         self.service_name = service_name
         self._otel_tracer = None
         self._collector = MetricsCollector.get_instance()
@@ -227,7 +227,7 @@ class Tracer:
         )
 
     @contextmanager
-    def trace(self, name: str, attributes: Dict[str, Any] = None):
+    def trace(self, name: str, attributes: Dict[str, Any] = None) -> Generator[Span, None, None]:
         """
         计时上下文管理器
 
@@ -375,7 +375,7 @@ def get_tracer(service_name: str = "deepin-agent-teams") -> Tracer:
         return _global_tracer
 
 
-def reset_tracer():
+def reset_tracer() -> None:
     """重置全局 Tracer（测试用）"""
     global _global_tracer
     with _tracer_lock:

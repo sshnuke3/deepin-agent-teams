@@ -2,11 +2,14 @@
 Deepin D-Bus 接口模块
 对接 deepin 操作系统的控制中心 API
 """
+import logging
 import subprocess
 import json
 import os
 from typing import Dict, Optional, List
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 def is_deepin() -> bool:
@@ -19,13 +22,10 @@ def is_deepin() -> bool:
 
     # 检查桌面环境
     try:
-        result = subprocess.run(
-            ["echo", "$XDG_CURRENT_DESKTOP"],
-            capture_output=True, text=True, shell=True
-        )
-        return "deepin" in result.stdout.lower()
-    except:
-        pass
+        desktop = os.environ.get("XDG_CURRENT_DESKTOP", "")
+        return "deepin" in desktop.lower()
+    except Exception as e:
+        logger.warning("is_deepin desktop env check failed: %s", e)
 
     return False
 
@@ -89,8 +89,8 @@ def list_dbus_services() -> List[str]:
                     if not name.startswith(":"):
                         services.append(name)
             return services
-    except:
-        pass
+    except Exception as e:
+        logger.warning("list_dbus_services failed: %s", e)
     return []
 
 
@@ -183,8 +183,8 @@ def get_audio_volume() -> float:
             # 解析输出
             match = output.split(":")[-1].strip()
             return float(match) * 100
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_audio_volume dbus failed: %s", e)
 
     # 降级：使用 amixer
     try:
@@ -196,8 +196,8 @@ def get_audio_volume() -> float:
         match = re.search(r"\[(\d+)%\]", result.stdout)
         if match:
             return float(match.group(1))
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_audio_volume amixer failed: %s", e)
 
     return 0.0
 
@@ -235,8 +235,8 @@ def get_brightness() -> float:
         with open("/sys/class/backlight/intel_backlight/max_brightness") as f:
             maximum = int(f.read().strip())
         return round(current / maximum * 100, 1)
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_brightness sysfs failed: %s", e)
 
     # 尝试 deepin D-Bus
     try:
@@ -247,8 +247,8 @@ def get_brightness() -> float:
         )
         if success:
             return float(output.split(":")[-1].strip())
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_brightness dbus failed: %s", e)
 
     return 0.0
 
@@ -263,8 +263,8 @@ def set_brightness(brightness: float) -> bool:
         with open("/sys/class/backlight/intel_backlight/brightness", "w") as f:
             f.write(str(value))
         return True
-    except:
-        pass
+    except Exception as e:
+        logger.warning("set_brightness sysfs failed: %s", e)
 
     # 尝试 deepin D-Bus
     try:
@@ -275,8 +275,8 @@ def set_brightness(brightness: float) -> bool:
             args={"value": str(brightness)}
         )
         return success
-    except:
-        pass
+    except Exception as e:
+        logger.warning("set_brightness dbus failed: %s", e)
 
     return False
 
@@ -309,7 +309,8 @@ def open_control_center(module: str = None) -> bool:
                 stderr=subprocess.DEVNULL
             )
         return True
-    except:
+    except Exception as e:
+        logger.warning("open_control_center failed: %s", e)
         return False
 
 
@@ -326,18 +327,14 @@ def get_deepin_info() -> Dict:
     try:
         with open("/etc/deepin-version") as f:
             info["version"] = f.read().strip()
-    except:
-        pass
+    except Exception as e:
+        logger.warning("get_deepin_info version failed: %s", e)
 
     # 桌面会话
     try:
-        result = subprocess.run(
-            ["echo", "$XDG_CURRENT_DESKTOP"],
-            capture_output=True, text=True, shell=True
-        )
-        info["desktop_session"] = result.stdout.strip()
-    except:
-        pass
+        info["desktop_session"] = os.environ.get("XDG_CURRENT_DESKTOP", "unknown")
+    except Exception as e:
+        logger.warning("get_deepin_info desktop session failed: %s", e)
 
     # D-Bus 服务
     info["dbus_services"] = list_dbus_services()[:20]  # 限制数量
@@ -374,8 +371,8 @@ def get_network_status() -> Dict:
                     result["connections"].append(conn)
                     if not result["active_connection"]:
                         result["active_connection"] = parts[0]
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_network_status active connections failed: %s", e)
 
     # 检查 WiFi 开关
     try:
@@ -384,8 +381,8 @@ def get_network_status() -> Dict:
             capture_output=True, text=True, timeout=5,
         )
         result["wifi_enabled"] = "enabled" in r.stdout.lower()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_network_status wifi radio failed: %s", e)
 
     return result
 
@@ -399,7 +396,8 @@ def set_wifi_enabled(enabled: bool) -> bool:
             capture_output=True, text=True, timeout=10,
         )
         return r.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.warning("set_wifi_enabled failed: %s", e)
         return False
 
 
@@ -423,8 +421,8 @@ def get_wifi_list() -> List[Dict]:
                         "security": parts[2],
                     })
             networks.sort(key=lambda x: x["signal"], reverse=True)
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_wifi_list failed: %s", e)
     return networks
 
 
@@ -436,7 +434,8 @@ def connect_wifi(ssid: str, password: str = None) -> bool:
     try:
         r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
         return r.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.warning("connect_wifi failed: %s", e)
         return False
 
 
@@ -458,8 +457,8 @@ def get_display_info() -> Dict:
                         "resolution": f"{match.group(2)}x{match.group(3)}",
                         "position": f"+{match.group(4)}+{match.group(5)}",
                     })
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_display_info failed: %s", e)
     result["brightness"] = get_brightness()
     return result
 
@@ -475,8 +474,8 @@ def get_appearance() -> Dict:
         )
         if r.returncode == 0:
             result["theme"] = r.stdout.strip().strip("'")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_appearance style failed: %s", e)
 
     try:
         # 图标主题
@@ -486,8 +485,8 @@ def get_appearance() -> Dict:
         )
         if r.returncode == 0:
             result["icon_theme"] = r.stdout.strip().strip("'")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_appearance icon failed: %s", e)
 
     try:
         # 壁纸
@@ -497,8 +496,8 @@ def get_appearance() -> Dict:
         )
         if r.returncode == 0:
             result["wallpaper"] = r.stdout.strip().strip("'")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_appearance wallpaper failed: %s", e)
 
     return result
 
@@ -512,7 +511,8 @@ def set_dark_mode(dark: bool) -> bool:
             capture_output=True, text=True, timeout=5,
         )
         return r.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.warning("set_dark_mode failed: %s", e)
         return False
 
 
@@ -540,8 +540,8 @@ def get_battery_status() -> Dict:
             match = re.search(r'time to (?:full|empty):\s+(.+)', r.stdout)
             if match:
                 result["time_remaining"] = match.group(1).strip()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("get_battery_status failed: %s", e)
     return result
 
 

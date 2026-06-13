@@ -35,7 +35,7 @@ class ContentCreator:
     - 格式化输出
     """
 
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Dict = None) -> None:
         self.name = "ContentCreator"
         self.config = config or {}
 
@@ -197,7 +197,7 @@ class ContentCreator:
                 messages=[{"role": "user", "content": prompt}]
             )
             return response.get("result", text[:max_len])
-        except:
+        except Exception:
             return text[:max_len] + "..."
 
     def process_task(self, task: str, context: Dict = None) -> Dict:

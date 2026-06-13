@@ -10,9 +10,12 @@
 """
 import os
 import sys
+import logging
 import subprocess
 from typing import Optional, Callable
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
@@ -148,7 +151,7 @@ class AutoExecutor(QObject):
                     "translate", True
                 )
         except Exception as e:
-            pass
+            logger.warning("translate LLM call failed: %s", e)
 
         return ExecutionResult(
             False, "翻译失败，请手动处理",
@@ -169,8 +172,8 @@ class AutoExecutor(QObject):
                     True, f"📝 内容要点：\n\n{result}",
                     "summarize", True
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("summarize LLM call failed: %s", e)
 
         return ExecutionResult(False, "总结失败", "summarize", True)
 
@@ -199,8 +202,8 @@ class AutoExecutor(QObject):
                     True, f"💻 代码分析：\n\n{result}",
                     "analyze_code", True
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("analyze_code LLM call failed: %s", e)
 
         return ExecutionResult(False, "代码分析失败", "analyze_code", True)
 
@@ -211,8 +214,12 @@ class AutoExecutor(QObject):
 
         try:
             # 获取服务状态
-            status_cmd = f"systemctl status {service} 2>&1 | head -20"
-            status_output = subprocess.getoutput(status_cmd)
+            import shlex
+            if service and shlex.split(service) == [service]:
+                r = subprocess.run(["systemctl", "status", service], capture_output=True, text=True, timeout=10)
+                status_output = r.stdout + r.stderr
+            else:
+                status_output = ""
 
             prompt = f"系统服务 {service} 异常。状态信息：\n{status_output}\n\n请诊断问题并给出修复建议。"
             result = self._call_llm(prompt)
@@ -221,8 +228,8 @@ class AutoExecutor(QObject):
                     True, f"⚠️ 系统诊断：\n\n{result}",
                     "diagnose", True
                 )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("diagnose LLM call failed: %s", e)
 
         return ExecutionResult(False, "诊断失败", "diagnose", True)
 
@@ -235,7 +242,8 @@ class AutoExecutor(QObject):
             router = ModelRouter()
             response = router.generate(prompt, max_tokens=500)
             return response.get("text", "") if isinstance(response, dict) else str(response)
-        except Exception:
+        except Exception as e:
+            logger.warning("_call_llm router failed: %s", e)
             # 降级：用 erniebot 直接调
             try:
                 import erniebot
@@ -246,7 +254,8 @@ class AutoExecutor(QObject):
                     messages=[{"role": "user", "content": prompt}],
                 )
                 return resp.get("result", "")
-            except Exception:
+            except Exception as e2:
+                logger.warning("_call_llm erniebot fallback failed: %s", e2)
                 return None
 
     def _set_clipboard(self, text: str):
@@ -254,7 +263,8 @@ class AutoExecutor(QObject):
         try:
             from perception.clipboard_monitor import set_clipboard_text
             set_clipboard_text(text)
-        except Exception:
+        except Exception as e:
+            logger.warning("clipboard_monitor failed: %s", e)
             # 降级：直接用 xclip
             try:
                 process = subprocess.Popen(
@@ -262,8 +272,8 @@ class AutoExecutor(QObject):
                     stdin=subprocess.PIPE
                 )
                 process.communicate(text.encode("utf-8"))
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.warning("xclip fallback also failed: %s", e2)
 
     def _build_confirmation_hint(self, decision: Decision) -> str:
         """生成用户确认提示"""

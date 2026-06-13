@@ -50,6 +50,11 @@ class OrchestratorV4:
     """
 
     def __init__(self, verbose: bool = True):
+        import warnings
+        warnings.warn(
+            "OrchestratorV4 已废弃，请使用 agents.orchestrator.Orchestrator",
+            DeprecationWarning, stacklevel=2
+        )
         self.verbose = verbose
         self.registry = ToolRegistry()
         self.verifier = Verifier()
@@ -115,7 +120,8 @@ class OrchestratorV4:
                 if self.verbose:
                     print(f"[OrchestratorV4] 断开: {name}")
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).warning("Failed to disconnect MCP: %s", name)
         self.mcp_clients.clear()
 
     # ========== Worker 管理（复用 v3 逻辑）==========
@@ -170,7 +176,8 @@ class OrchestratorV4:
                 proc.terminate()
                 proc.wait(timeout=3)
             except Exception:
-                pass
+                import logging
+                logging.getLogger(__name__).warning("Failed to terminate worker %s", role)
 
     # ========== 任务分解（使用 MCP 工具）==========
 

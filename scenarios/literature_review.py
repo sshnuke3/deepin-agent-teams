@@ -2,11 +2,14 @@
 智能文献阅读助手场景
 识别文献阅读意图 → 读取文献 → 提取关键信息 → 生成综述
 """
+import logging
 import os
 import sys
 import re
 import subprocess
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -155,8 +158,8 @@ class LiteratureAssistant:
                 return result.stdout[:100000]
         except FileNotFoundError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_extract_pdf pdftotext failed: %s", e)
 
         # 尝试用 Python 库
         try:
@@ -170,8 +173,8 @@ class LiteratureAssistant:
                 return "\n\n".join(text_parts)[:100000]
         except ImportError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_extract_pdf pdfplumber failed: %s", e)
 
         return "(PDF 文件，需安装 pdftotext 或 pdfplumber 提取)"
 
@@ -184,8 +187,8 @@ class LiteratureAssistant:
             return "\n\n".join(paragraphs)[:100000]
         except ImportError:
             pass
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_extract_docx failed: %s", e)
         return "(DOCX 文件，需安装 python-docx 提取)"
 
     def run(self, user_input: str) -> Dict:

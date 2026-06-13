@@ -118,7 +118,7 @@ class ConflictResolver:
 
             return True
 
-    def release_lock(self, resource_id: str, agent_name: str):
+    def release_lock(self, resource_id: str, agent_name: str) -> None:
         """释放资源锁"""
         with self._lock_mutex:
             lock = self._locks.get(resource_id)
@@ -241,17 +241,17 @@ class ConflictResolver:
     # === 统计 ===
 
     def get_conflict_history(self) -> List[Dict]:
-        """获取冲突历史"""
+        """获取所有冲突历史记录列表"""
         from dataclasses import asdict
         return [asdict(c) for c in self._conflict_history]
 
     def get_active_locks(self) -> Dict[str, Dict]:
-        """获取当前活跃锁"""
+        """获取当前所有活跃的锁信息"""
         from dataclasses import asdict
         return {k: asdict(v) for k, v in self._locks.items()}
 
-    def cleanup_expired_locks(self):
-        """清理所有超时锁"""
+    def cleanup_expired_locks(self) -> int:
+        """清理所有超时锁，返回清理数量"""
         with self._lock_mutex:
             expired = [rid for rid, lock in self._locks.items()
                        if self._is_lock_expired(lock)]
@@ -265,6 +265,7 @@ _resolver: Optional[ConflictResolver] = None
 
 
 def get_resolver() -> ConflictResolver:
+    """获取全局冲突解决器单例"""
     global _resolver
     if _resolver is None:
         _resolver = ConflictResolver()

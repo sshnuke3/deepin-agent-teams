@@ -63,11 +63,11 @@ class SpanInfo:
     def duration_ms(self) -> float:
         return (self.end_time - self.start_time) * 1000
 
-    def finish(self, status: str = "ok"):
+    def finish(self, status: str = "ok") -> None:
         self.end_time = time.time()
         self.status = status
 
-    def add_event(self, name: str, attributes: Dict = None):
+    def add_event(self, name: str, attributes: Dict = None) -> None:
         self.events.append({"name": name, "attributes": attributes or {}, "time": time.time()})
 
     def to_dict(self) -> dict:
@@ -104,7 +104,7 @@ class MetricsCollector:
     _instance: Optional["MetricsCollector"] = None
     _lock = threading.Lock()
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._metrics: List[MetricPoint] = []
         self._spans: List[SpanInfo] = []
         self._active_spans: Dict[str, SpanInfo] = {}
@@ -119,7 +119,7 @@ class MetricsCollector:
             return cls._instance
 
     @classmethod
-    def reset(cls):
+    def reset(cls) -> None:
         """重置单例（测试用）"""
         with cls._lock:
             if cls._instance:
@@ -132,7 +132,7 @@ class MetricsCollector:
 
     # ---- Token 消耗 ----
 
-    def record_token(self, state: str, phase: str, tokens: int, model: str = "default"):
+    def record_token(self, state: str, phase: str, tokens: int, model: str = "default") -> None:
         """记录 Token 消耗"""
         labels = {"state": state, "phase": phase, "model": model}
         point = MetricPoint(name="agent.token.usage", value=tokens, labels=labels)
@@ -143,7 +143,7 @@ class MetricsCollector:
 
     # ---- 执行延迟 ----
 
-    def record_latency(self, name: str, duration_ms: float, labels: Dict[str, str] = None):
+    def record_latency(self, name: str, duration_ms: float, labels: Dict[str, str] = None) -> None:
         """记录执行延迟"""
         point = MetricPoint(name=f"agent.latency.{name}", value=duration_ms, labels=labels or {})
         self._metrics.append(point)
@@ -152,7 +152,7 @@ class MetricsCollector:
 
     # ---- 错误率 ----
 
-    def record_error(self, error_type: str, labels: Dict[str, str] = None):
+    def record_error(self, error_type: str, labels: Dict[str, str] = None) -> None:
         """记录错误"""
         all_labels = {"error_type": error_type}
         if labels:
@@ -176,7 +176,7 @@ class MetricsCollector:
         self._active_spans[span_id] = span
         return span_id
 
-    def finish_span(self, span_id: str, status: str = "ok"):
+    def finish_span(self, span_id: str, status: str = "ok") -> None:
         """结束一个执行跨度"""
         span = self._active_spans.pop(span_id, None)
         if span:
@@ -184,7 +184,7 @@ class MetricsCollector:
             self._spans.append(span)
             self.record_latency(span.name, span.duration_ms, span.labels)
 
-    def add_span_event(self, span_id: str, event_name: str, attributes: Dict = None):
+    def add_span_event(self, span_id: str, event_name: str, attributes: Dict = None) -> None:
         """给活跃 span 添加事件"""
         span = self._active_spans.get(span_id)
         if span:
@@ -221,7 +221,7 @@ class MetricsCollector:
 
     # ---- 持久化 ----
 
-    def save(self, filename: str = None):
+    def save(self, filename: str = None) -> str:
         """保存指标到 JSON Lines 文件"""
         os.makedirs(METRICS_DIR, exist_ok=True)
         if not filename:
@@ -243,7 +243,7 @@ class MetricsCollector:
 class TimerContext:
     """自动计时的上下文管理器"""
 
-    def __init__(self, collector: MetricsCollector, name: str, labels: Dict[str, str] = None):
+    def __init__(self, collector: MetricsCollector, name: str, labels: Dict[str, str] = None) -> None:
         self.collector = collector
         self.name = name
         self.labels = labels

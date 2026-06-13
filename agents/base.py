@@ -17,7 +17,7 @@ class BaseAgent:
     封装 erniebot 调用，支持双模型路由（model_router）
     """
 
-    def __init__(self, role: str, verbose: bool = True):
+    def __init__(self, role: str, verbose: bool = True) -> None:
         self.role = role
         self.verbose = verbose
         self.config = AGENTS_CONFIG.get(role, {})
@@ -103,7 +103,7 @@ class BaseAgent:
         self.messages.append({"role": "assistant", "content": reply})
         return reply
 
-    def reset(self):
+    def reset(self) -> None:
         """重置对话历史（保留 system prompt）"""
         sys_msg = self.messages[0]
         self.messages = [sys_msg]

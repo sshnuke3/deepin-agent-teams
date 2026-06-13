@@ -51,7 +51,7 @@ class AIMock:
         # 返回预录制的确定性响应
     """
 
-    def __init__(self, fixtures: Dict[str, AIMockResponse] = None):
+    def __init__(self, fixtures: Dict[str, AIMockResponse] = None) -> None:
         self._fixtures = fixtures or {}
         self._call_log: List[Dict] = []
 
@@ -96,7 +96,7 @@ class AIMock:
     def call_count(self) -> int:
         return len(self._call_log)
 
-    def save_fixture(self, name: str, responses: Dict[str, Dict]):
+    def save_fixture(self, name: str, responses: Dict[str, Dict]) -> None:
         """保存 fixture 到文件"""
         os.makedirs(FIXTURES_DIR, exist_ok=True)
         fixture_path = os.path.join(FIXTURES_DIR, f"{name}.json")
@@ -218,7 +218,7 @@ class EvalRunner:
     4. 输出到 reports/ 目录
     """
 
-    def __init__(self, name: str, agent_fn: Callable = None, use_mock: bool = True):
+    def __init__(self, name: str, agent_fn: Callable = None, use_mock: bool = True) -> None:
         self.name = name
         self.agent_fn = agent_fn  # Agent 执行函数
         self.use_mock = use_mock
@@ -226,12 +226,12 @@ class EvalRunner:
         self.results: List[EvalResult] = []
         self.assertions: List[Callable] = []
 
-    def add_case(self, case: EvalCase):
+    def add_case(self, case: EvalCase) -> "EvalRunner":
         """添加评测用例"""
         self.cases.append(case)
         return self
 
-    def add_assertion(self, fn: Callable):
+    def add_assertion(self, fn: Callable) -> "EvalRunner":
         """添加自定义断言"""
         self.assertions.append(fn)
         return self
@@ -341,7 +341,7 @@ class EvalRunner:
 
         return summary
 
-    def save_report(self, summary: Dict):
+    def save_report(self, summary: Dict) -> str:
         """保存评测报告"""
         os.makedirs(REPORTS_DIR, exist_ok=True)
         timestamp = time.strftime("%Y%m%d_%H%M%S")

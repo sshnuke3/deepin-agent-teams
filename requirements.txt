@@ -1,12 +1,12 @@
 # deepin-agent-teams 依赖
 #
 # 核心依赖
-erniebot
-python-dotenv
-tiktoken
+erniebot==0.5.9
+python-dotenv==1.2.2
+tiktoken>=0.5.0
 
 # GUI 依赖
-PyQt5
+PyQt5==5.15.11
 
 # OCR 依赖（可选，用于屏幕文字识别）
 # paddlepaddle

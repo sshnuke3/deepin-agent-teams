@@ -35,7 +35,7 @@ class BaseWorker:
     4. 结果导向：所有结果统一格式，可被 Lead 整合
     """
 
-    def __init__(self, role: str, capabilities: List[str]):
+    def __init__(self, role: str, capabilities: List[str]) -> None:
         self.role = role
         self.capabilities = capabilities
         self.agent_id = None
@@ -55,19 +55,19 @@ class BaseWorker:
         print(f"[{self.role}] Worker 注册完成: {self.agent_id}", flush=True)
         return self.agent_id
 
-    def unregister(self):
+    def unregister(self) -> None:
         """注销"""
         self.registry.unregister()
 
-    def heartbeat(self):
+    def heartbeat(self) -> None:
         """发送心跳"""
         self.registry.heartbeat()
 
-    def set_state_machine(self, sm):
+    def set_state_machine(self, sm: Any) -> None:
         """注入状态机（由 Orchestrator 调用）"""
         self._state_machine = sm
 
-    def set_confirm_callback(self, callback):
+    def set_confirm_callback(self, callback: Any) -> None:
         """注入确认回调函数（用于 Human-in-Loop 四值确认）"""
         self._confirm_callback = callback
 
@@ -393,7 +393,7 @@ class BaseWorker:
 
     # ========== Worker 主循环 ==========
 
-    def run(self):
+    def run(self) -> None:
         """Worker 主循环"""
         self.register()
 
@@ -433,7 +433,7 @@ class GeneralWorker(BaseWorker):
     通用 Worker - 自主分析任务并选择合适的能力执行
     """
 
-    def __init__(self, role: str, capabilities: List[str]):
+    def __init__(self, role: str, capabilities: List[str]) -> None:
         super().__init__(role, capabilities)
 
     def execute_task(self, task: Dict) -> Dict:

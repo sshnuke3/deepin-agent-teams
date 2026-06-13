@@ -10,7 +10,7 @@ agents/security_config.py - 生产级安全配置
 4. 四值确认机制 — allow / always / deny / exit（学自 OpenVibeCoding）
 """
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Tuple, Any
 from dataclasses import dataclass, field
 from enum import Enum
 
@@ -175,7 +175,7 @@ class TokenTracker:
     phase_tokens: Dict[str, int] = field(default_factory=dict)
     total_tokens: int = 0
 
-    def record(self, state: str, tokens: int, phase: str = None):
+    def record(self, state: str, tokens: int, phase: str = None) -> None:
         """记录 Token 消耗（大小写不敏感）"""
         state_key = state.upper()
         self.state_tokens[state_key] = self.state_tokens.get(state_key, 0) + tokens
@@ -400,7 +400,7 @@ class ConfirmationGuard:
         guard.record(response)
     """
 
-    def __init__(self):
+    def __init__(self) -> None:
         self._always_allow: List[str] = []  # 用户选择 "always" 的模式 ID
         self._confirm_history: List[dict] = []
 
@@ -429,7 +429,7 @@ class ConfirmationGuard:
             pattern_id=pattern_id,
         )
 
-    def record(self, request: ConfirmRequest, response: ConfirmResponse):
+    def record(self, request: ConfirmRequest, response: ConfirmResponse) -> None:
         """记录用户确认结果"""
         self._confirm_history.append({
             "tool": request.tool_name,

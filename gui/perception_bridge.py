@@ -3,10 +3,13 @@
 感知桥接层
 将 perception 模块的事件接入 GUI（悬浮球 + 对话窗口）
 """
+import logging
 import os
 import sys
 import hashlib
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 from PyQt5.QtCore import QObject, QTimer, pyqtSignal
 
@@ -76,8 +79,8 @@ class PerceptionBridge(QObject):
                 self._last_clipboard_hash = h
                 self.clipboard_changed.emit(text)
                 self._suggest_for_clipboard(text)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_check_clipboard failed: %s", e)
 
     def _suggest_for_clipboard(self, text: str):
         """通过决策引擎处理剪贴板内容"""
@@ -100,8 +103,8 @@ class PerceptionBridge(QObject):
             classification = get_window_classification(title)
             self.window_changed.emit(title, classification)
             self._suggest_for_window(title, classification, app_class)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_check_window failed: %s", e)
 
     def _suggest_for_window(self, title: str, classification: str, app_class: str = ""):
         """通过决策引擎处理窗口变化"""
@@ -156,8 +159,8 @@ class PerceptionBridge(QObject):
                             return
 
             self._last_system_ok = True
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_check_system failed: %s", e)
 
     # ---- 感知状态查询 ----
     def get_status(self) -> dict:

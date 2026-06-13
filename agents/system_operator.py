@@ -29,7 +29,7 @@ class SystemOperator:
     - 文件操作
     """
 
-    def __init__(self, config: Dict = None):
+    def __init__(self, config: Dict = None) -> None:
         self.name = "SystemOperator"
         self.config = config or {}
         self.capabilities = [
@@ -52,14 +52,15 @@ class SystemOperator:
         Returns:
             CommandResult
         """
+        import shlex
+
         if sudo:
             cmd = f"sudo {cmd}"
 
-        shell = isinstance(cmd, str) and not cmd.startswith("[")
+        cmd_parts = shlex.split(cmd)
         try:
             result = subprocess.run(
-                cmd,
-                shell=shell,
+                cmd_parts,
                 capture_output=True,
                 text=True,
                 timeout=timeout
