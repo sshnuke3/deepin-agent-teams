@@ -237,14 +237,14 @@ deepin-agent-teams/
 ### 运行编排器（v3 — 原版）
 
 ```bash
-cd ~/.openclaw/workspace/deepin-agent-teams
+cd /path/to/deepin-agent-teams
 python3 agents/orchestrator_v3.py
 ```
 
 ### 运行编排器（v4 — MCP 驱动）
 
 ```bash
-cd ~/.openclaw/workspace/deepin-agent-teams
+cd /path/to/deepin-agent-teams
 python3 agents/orchestrator_v4.py
 ```
 
@@ -296,7 +296,7 @@ python3 tests/benchmark.py
 # 各模块单元测试
 python3 agents/planner.py           # Planner（9/9）
 python3 agents/task_state_machine.py # 状态机（12/12）
-python3 agents/verifier.py          # Verifier（19/19）
+python3 agents/verifier.py          # Verifier（13/13）
 python3 agents/context_manager.py   # 上下文管理（11/11）
 python3 agents/prompt_loader.py     # Prompt 模板（12/12）
 python3 agents/debate.py            # 辩论模式（10/10）

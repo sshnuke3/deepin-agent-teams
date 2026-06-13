@@ -199,21 +199,33 @@ Lead 汇总 → 格式化输出 → 用户
 ```python
 # agents/conflict_resolver.py
 
-def resolve_conflict(agent_a_task, agent_b_task) -> Resolution:
+class ConflictResolver:
     """
-    检测任务冲突并协商解决
-    """
-    # 冲突类型：
-    # 1. 资源竞争（同时访问同一文件）
-    # 2. 指令矛盾（A要写，B要删）
-    # 3. 循环依赖（A等B，B等A）
+    冲突解决器
 
-    if conflict_type == "file_access":
-        # 文件锁机制，按优先级排序
-        return prioritize_by_priority(agent_a_task, agent_b_task)
-    elif conflict_type == "circular_dep":
-        # 中断循环，选择更高优先级任务继续
-        return interrupt_and_continue()
+    功能：
+    1. 资源锁（fcntl 文件锁）— 防止并发写入同一文件
+    2. 优先级协商 — 多 Agent 争抢同一资源时按优先级排序
+    3. 结果合并 — 多 Agent 并行输出去重合并
+    """
+
+    AGENT_PRIORITY = {
+        "system_operator": 10,
+        "lead": 9,
+        "coder": 7,
+        "content_creator": 6,
+        "researcher": 5,
+        "information_collector": 4,
+        "worker": 3,
+    }
+
+    def acquire_lock(self, resource_id: str, owner: str) -> bool:
+        """获取资源锁"""
+        ...
+
+    def detect_conflict(self, tasks: List[Dict]) -> Optional[ConflictRecord]:
+        """检测并行任务间的冲突"""
+        ...
 ```
 
 ---
