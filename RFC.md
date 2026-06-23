@@ -106,7 +106,6 @@ class ModelRouter:
     路由逻辑（遵循 config.py MODEL_ROUTING 表）：
         task_type → "lite" → ernie-lite
         task_type → "strong" → ernie-3.5
-        两者均失败 → MiniMax（第三方备选）
     """
 
     def chat(self, message: str, task_type: str = "general", **kwargs) -> dict:
@@ -116,7 +115,6 @@ class ModelRouter:
         """
         level = MODEL_ROUTING.get(task_type, "lite")
         model_name = MODEL_STRONG if level == "strong" else MODEL_LITE
-        # 尝试指定模型 → 降级 lite → MiniMax → Fallback
         ...
 
 router = ModelRouter()

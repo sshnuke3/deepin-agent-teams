@@ -205,20 +205,87 @@ class DockerHands(HandsInterface):
         self._image = image
 
     def execute(self, request: ExecuteRequest) -> ExecuteResponse:
-        # TODO: 实现 Docker 容器执行
+        """在 Docker 容器中执行命令"""
+        import subprocess
+        start = time.time()
+
+        # 根据 capability 分发
+        if request.capability == "shell_executor":
+            command = request.params.get("command", "")
+            if not command:
+                return ExecuteResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error="no command provided",
+                    error_type="E_BAD_REQUEST",
+                )
+            try:
+                result = subprocess.run(
+                    ["docker", "run", "--rm", self._image,
+                     "bash", "-c", command],
+                    capture_output=True, text=True,
+                    timeout=request.timeout,
+                )
+                return ExecuteResponse(
+                    request_id=request.request_id,
+                    success=(result.returncode == 0),
+                    output={
+                        "command": command,
+                        "exit_code": result.returncode,
+                        "stdout": result.stdout[:10000],
+                        "stderr": result.stderr[:5000],
+                    },
+                    error=result.stderr[:500] if result.returncode != 0 else None,
+                    error_type="E_EXEC_FAILED" if result.returncode != 0 else None,
+                    duration_ms=int((time.time() - start) * 1000),
+                )
+            except subprocess.TimeoutExpired:
+                return ExecuteResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error=f"Docker execution timeout after {request.timeout}s",
+                    error_type="E_TIMEOUT",
+                    duration_ms=int((time.time() - start) * 1000),
+                )
+            except FileNotFoundError:
+                return ExecuteResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error="docker command not found",
+                    error_type="E_DEPENDENCY",
+                )
+            except Exception as e:
+                return ExecuteResponse(
+                    request_id=request.request_id,
+                    success=False,
+                    error=str(e)[:500],
+                    error_type="E_EXEC_FAILED",
+                    duration_ms=int((time.time() - start) * 1000),
+                )
+
+        # 其他 capability 暂不支持
         return ExecuteResponse(
             request_id=request.request_id,
             success=False,
-            error="DockerHands not implemented yet",
-            error_type="E_NOT_IMPLEMENTED",
+            error=f"DockerHands does not support capability: {request.capability}",
+            error_type="E_NOT_SUPPORTED",
         )
 
     def health_check(self) -> bool:
-        # TODO: 检查 Docker 是否可用
-        return False
+        """检查 Docker 是否可用"""
+        import subprocess
+        try:
+            result = subprocess.run(
+                ["docker", "info"],
+                capture_output=True, timeout=5,
+            )
+            return result.returncode == 0
+        except Exception:
+            return False
 
     def get_capabilities(self) -> List[str]:
-        return []  # TODO
+        """Docker 容器支持的能力（目前仅 shell_executor）"""
+        return ["shell_executor"]
 
 
 # ============================================================

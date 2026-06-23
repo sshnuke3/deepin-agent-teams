@@ -1009,8 +1009,28 @@ capability → agent_type 映射：
         2. model_router（双模型路由）
         3. erniebot 直接调用
         4. 返回 None（降级）
+
+        Token 预算联动：超预算时自动降级 strong → lite
         """
-        llm_span = self.tracer.trace_llm_call(model=task_type, task_type=task_type) if self.tracer else None
+        # Token 预算检查：超预算时强制降级到 lite
+        effective_task_type = task_type
+        if self._current_sm:
+            try:
+                from security_config import get_token_budget, GLOBAL_TASK_TOKEN_LIMIT
+                tracker = self._current_sm._token_tracker
+                within_budget, used, budget = tracker.check_budget("RUNNING", self._current_sm._current_phase)
+                if not within_budget:
+                    from config import MODEL_ROUTING
+                    if MODEL_ROUTING.get(task_type) == "strong":
+                        effective_task_type = "general"  # general → lite
+                        log_warn(
+                            f"Token预算超限: used={used}, budget={budget}, 模型降级 {task_type}→{effective_task_type}",
+                            self.verbose
+                        )
+            except Exception:
+                pass
+
+        llm_span = self.tracer.trace_llm_call(model=effective_task_type, task_type=effective_task_type) if self.tracer else None
 
         # 构建消息列表（注入上下文窗口历史）
         messages = []
@@ -1045,8 +1065,8 @@ capability → agent_type 映射：
         # 方式 2：model_router
         if get_router is not None:
             try:
-                router = get_router(verbose=self.verbose)
-                resp = router.chat(prompt, task_type=task_type)
+                router = get_router()
+                resp = router.chat(prompt, task_type=effective_task_type)
                 if resp.get("success"):
                     if llm_span:
                         llm_span.set_attribute("gen_ai.request.model", resp.get("model", "ernie"))
@@ -1105,7 +1125,7 @@ capability → agent_type 映射：
         # 检查 model_router
         if get_router is not None:
             try:
-                router = get_router(verbose=False)
+                router = get_router()
                 channels["model_router"] = True  # import 成功即视为可用
             except Exception as e:
                 log_warn(f"Model router health check failed: {e}", self.verbose)

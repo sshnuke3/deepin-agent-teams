@@ -6,13 +6,12 @@ agents/model_router.py - 双文心模型路由器
 方案：
   - ernie-lite：轻量快速（意图识别/摘要/分类/通用对话）
   - ernie-3.5：强力复杂（代码分析/诊断/邮件生成/文献综述/任务规划）
-  - MiniMax：第三方备选（仅在文心模型全部不可用时降级）
 
 路由策略：根据 config.py 的 MODEL_ROUTING 表自动选择模型
 
 设计原则：
 1. 每次调用超时 30s，超时自动切换
-2. 降级链：ernie-3.5 ↔ ernie-lite → MiniMax → 本地 fallback
+2. 降级链：ernie-3.5 → ernie-lite → 本地 fallback
 3. 记录每步调用结果（成功/失败/耗时/token）
 """
 import os
@@ -42,9 +41,6 @@ except ImportError:
     ERNIEBOT_STRONG_TOKEN = ""
     DEFAULT_ACCESS_TOKEN = os.environ.get("DEFAULT_ACCESS_TOKEN", "")
 
-# MiniMax 作为第三方备选
-MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
-
 DEFAULT_TIMEOUT = 30
 
 
@@ -53,7 +49,7 @@ class ModelResponse:
     """标准响应格式"""
     content: str
     model: str           # 实际使用的模型名
-    level: str           # "lite" | "strong" | "minimax" | "fallback"
+    level: str           # "lite" | "strong" | "fallback"
     success: bool
     error: Optional[str] = None
     latency_ms: int = 0
@@ -72,18 +68,16 @@ class ModelRouter:
     路由逻辑（遵循 config.py MODEL_ROUTING 表）：
         task_type → "lite" → ernie-lite
         task_type → "strong" → ernie-3.5
-        两者均失败 → MiniMax（第三方备选）
+        两者均失败 → 本地 fallback
     """
 
     def __init__(self, verbose: bool = True) -> None:
         self.verbose = verbose
         self._ernie_available = False
-        self._minimax_available = False
         self._strong_available = True   # ernie-3.5 是否可用（token 是否耗尽）
         self._call_log: list = []
 
         self._init_ernie()
-        self._init_minimax()
 
     def _init_ernie(self):
         """初始化 ERNIE BOT（文心大模型）"""
@@ -105,16 +99,6 @@ class ModelRouter:
         except Exception as e:
             if self.verbose:
                 print(f"[ModelRouter] ERNIE init failed: {e}")
-
-    def _init_minimax(self):
-        """初始化 MiniMax（第三方备选）"""
-        if not MINIMAX_API_KEY:
-            if self.verbose:
-                print("[ModelRouter] MiniMax API key not found (fallback unavailable)")
-            return
-        self._minimax_available = True
-        if self.verbose:
-            print(f"[ModelRouter] MiniMax fallback initialized (key={MINIMAX_API_KEY[:8]}...)")
 
     def chat(
         self,
@@ -171,19 +155,6 @@ class ModelRouter:
                 return {
                     "success": True, "result": resp.content,
                     "model": resp.model, "level": "lite",
-                    "latency_ms": resp.latency_ms,
-                }
-
-        # 尝试3：MiniMax 第三方备选
-        if self._minimax_available:
-            if self.verbose:
-                print(f"[ModelRouter] ERNIE models unavailable, fallback to MiniMax")
-            resp = self._call_minimax(message, system, temperature)
-            if resp.success:
-                self._log_call("minimax", task_type, resp)
-                return {
-                    "success": True, "result": resp.content,
-                    "model": "MiniMax-Text-01", "level": "minimax",
                     "latency_ms": resp.latency_ms,
                 }
 
@@ -261,69 +232,6 @@ class ModelRouter:
                 latency_ms=int((time.time() - start) * 1000),
             )
 
-    def _call_minimax(
-        self,
-        message: str,
-        system: Optional[str],
-        temperature: float,
-    ) -> ModelResponse:
-        """调用 MiniMax API（第三方备选）"""
-        start = time.time()
-
-        if not self._minimax_available:
-            return ModelResponse(
-                content="", model="MiniMax-Text-01", level="minimax",
-                success=False, error="MiniMax not available",
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
-        try:
-            import urllib.request
-
-            url = "https://api.minimax.chat/v1/text/chatcompletion_pro"
-            headers = {
-                "Authorization": f"Bearer {MINIMAX_API_KEY}",
-                "Content-Type": "application/json",
-            }
-
-            messages = []
-            if system:
-                messages.append({"role": "system", "name": "assistant", "content": system})
-            messages.append({"role": "user", "content": message})
-
-            payload = {
-                "model": "MiniMax-Text-01",
-                "messages": messages,
-                "max_tokens": 2048,
-                "temperature": temperature,
-            }
-
-            data = json.dumps(payload).encode("utf-8")
-            req = urllib.request.Request(url, data=data, headers=headers, method="POST")
-            req.add_header("Content-Length", str(len(data)))
-
-            with urllib.request.urlopen(req, timeout=DEFAULT_TIMEOUT) as resp:
-                result = json.loads(resp.read().decode("utf-8"))
-
-            choices = result.get("choices", [])
-            content = choices[0].get("message", {}).get("content", "") if choices else ""
-
-            return ModelResponse(
-                content=content,
-                model="MiniMax-Text-01",
-                level="minimax",
-                success=True,
-                latency_ms=int((time.time() - start) * 1000),
-                token_used=result.get("usage", {}).get("total_tokens", 0),
-            )
-
-        except Exception as e:
-            return ModelResponse(
-                content="", model="MiniMax-Text-01", level="minimax",
-                success=False, error=str(e)[:200],
-                latency_ms=int((time.time() - start) * 1000),
-            )
-
     def _build_messages(self, message: str, system: Optional[str]) -> List[Dict]:
         """构建消息列表（ERNIE aistudio 不支持 system role）"""
         messages = []
@@ -347,24 +255,35 @@ class ModelRouter:
         })
 
     def stats(self) -> dict:
-        """返回调用统计"""
+        """返回调用统计（含成本估算）"""
         total = len(self._call_log)
         success = sum(1 for c in self._call_log if c["success"])
         by_model = {}
+        total_tokens = 0
         for c in self._call_log:
             m = c["model"]
             if m not in by_model:
-                by_model[m] = {"total": 0, "success": 0}
+                by_model[m] = {"total": 0, "success": 0, "tokens": 0}
             by_model[m]["total"] += 1
+            by_model[m]["tokens"] += c.get("token_used", 0)
+            total_tokens += c.get("token_used", 0)
             if c["success"]:
                 by_model[m]["success"] += 1
+
+        # 路由命中统计
+        by_level = {}
+        for c in self._call_log:
+            lvl = c.get("level", "unknown")
+            by_level[lvl] = by_level.get(lvl, 0) + 1
 
         return {
             "total_calls": total,
             "success": success,
             "failures": total - success,
             "success_rate": f"{100*success/total:.1f}%" if total else "0%",
+            "total_tokens": total_tokens,
             "by_model": by_model,
+            "by_level": by_level,
             "models_used": list(by_model.keys()),
         }
 
@@ -374,7 +293,7 @@ class ModelRouter:
             "routing_table": {},
             "ernie_available": self._ernie_available,
             "strong_available": self._strong_available,
-            "minimax_available": self._minimax_available,
+
         }
         for task_type, level in MODEL_ROUTING.items():
             model = MODEL_STRONG if level == "strong" else MODEL_LITE

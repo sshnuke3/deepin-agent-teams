@@ -229,7 +229,7 @@
   - 当前：ernie-lite（轻量）/ ernie-3.5（复杂）
   - 优化：根据任务复杂度动态选择
     - 简单任务（1步计划）→ ernie-lite
-    - 复杂任务（3+步计划）→ ernie-3.5（或切到 MiniMax）
+    - 复杂任务（3+步计划）→ ernie-3.5
   - 路由决策写入 trace
 
 - [ ] 7.3 测试
@@ -291,7 +291,7 @@ Step 5 (A2A)       ←── Step 6 (OTel)
 
 | 风险 | 影响 | 缓解措施 |
 |------|------|---------|
-| ernie-lite 摘要质量差 | 上下文压缩效果不好 | 用 MiniMax 做摘要，或用规则压缩 |
+| ernie-lite 摘要质量差 | 上下文压缩效果不好 | 用规则压缩 |
 | 并行执行 Token 爆炸 | fan_out 3个任务 = 3倍消耗 | 每个子任务独立预算，全局总预算 |
 | Prompt 迁移回归 | 移动 prompt 后行为变化 | 先写对比测试，迁移前后 diff |
 | OTel 依赖冲突 | pip 安装和 deepin 环境冲突 | 保留 metrics_collector 降级方案 |

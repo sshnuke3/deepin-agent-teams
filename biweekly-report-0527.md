@@ -37,7 +37,7 @@ sshnuke3
 - **状态机引擎** (`agents/task_state_machine.py`, 359行)
   - 7 种任务状态：PENDING → CLAIMED → RUNNING → VERIFIED → COMPLETED / FAILED / RETRY
   - 所有跳转条件用代码写死，不依赖模型主观判断
-  - 每次跳转写 trace → `/tmp/deepin_traces/{task_id}.jsonl`
+  - 每次跳转写 trace → `data/traces/{task_id}.jsonl`
   - 单元测试 5/5 通过
 - **独立 Verifier** (`agents/verifier.py`, 332行)
   - 不读 Worker 上下文，完全独立世界观
@@ -58,7 +58,7 @@ sshnuke3
   - 任务中断后从 checkpoint 恢复，不整体重来
   - 自动保存中间状态到磁盘
 - **Trace 分析工具** (`tools/analyze_traces.py`, 184行)
-  - 分析 `/tmp/deepin_traces/` 下的任务执行轨迹
+  - 分析 `data/traces/` 下的任务执行轨迹
   - 支持统计成功率、耗时分布、失败原因
 - 相关提交：`e5409ed`
 
@@ -66,8 +66,6 @@ sshnuke3
 - **双文心模型路由器** (`agents/model_router.py`, 361行)
   - 轻量任务（意图识别/摘要/分类）→ **ernie-lite**
   - 复杂任务（代码分析/诊断/邮件生成/文献综述）→ **ernie-3.5**
-  - MiniMax 作为第三方备选（仅在文心模型全部不可用时降级）
-  - 降级链：ernie-3.5 ↔ ernie-lite → MiniMax → 本地 fallback
   - 路由表遵循 config.py MODEL_ROUTING，支持 13 种任务类型
   - 满足赛题要求"至少调用两款文心大模型 API"
 - **能力分析工具** (`tools/analyze_capabilities.py`, 273行)
@@ -112,7 +110,6 @@ sshnuke3
   - ernie-lite：6 种轻量任务（意图识别/摘要/分类/实体提取/翻译/通用对话）
   - ernie-3.5：7 种复杂任务（邮件生成/系统诊断/代码分析/文献综述/复杂推理/任务规划/报告生成）
   - 两款模型通过 config.py MODEL_ROUTING 路由表自动切换
-  - MiniMax 仅作为第三方降级备选，不计入文心模型数
 
 ### 下周计划（2026.05.28 ~ 2026.06.03）
 
@@ -143,7 +140,6 @@ deepin-agent-teams/
 │   ├── orchestrator_v3.py          # v3 编排器（状态机+Verifier，396行）⭐
 │   ├── task_state_machine.py       # 状态机引擎（7状态+trace，359行）
 │   ├── verifier.py                 # 独立质检员（清单验收，332行）
-│   ├── model_router.py             # 多模型路由（MiniMax+ERNIE，361行）
 │   ├── conflict_resolver.py        # 冲突解决器（文件锁+7级优先级）
 │   ├── worker_base.py              # Worker 基类（shell/scan/search/fetch）
 │   ├── lead.py                     # Lead Agent

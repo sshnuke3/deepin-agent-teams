@@ -24,7 +24,7 @@
 ### 跳转规则约束
 
 - 所有跳转条件必须**代码写死**，禁止模型主观判断
-- 每次跳转必须写 trace，trace 写入 `/tmp/deepin_traces/{task_id}.jsonl`
+- 每次跳转必须写 trace，trace 写入 `data/traces/{task_id}.jsonl`
 - 非法跳转（不在规则表中的）必须**拒绝**，不得静默通过
 
 ### 超时规则
@@ -155,7 +155,7 @@ RETRY   → 可恢复错误（暂时性），附 cause
 ### 文件格式
 
 ```json
-// /tmp/deepin_checkpoints/{task_id}/metadata.json
+// data/checkpoints/{task_id}/metadata.json
 {
     "task_id": "task-xxx",
     "created_at": 1747891234.5,
@@ -163,7 +163,7 @@ RETRY   → 可恢复错误（暂时性），附 cause
     "completed_steps": ["file_reader", "code_analyzer"]
 }
 
-// /tmp/deepin_checkpoints/{task_id}/{capability}-meta.json
+// data/checkpoints/{task_id}/{capability}-meta.json
 {
     "task_id": "task-xxx",
     "capability": "code_analyzer",
@@ -173,7 +173,7 @@ RETRY   → 可恢复错误（暂时性），附 cause
     "step": 1
 }
 
-// /tmp/deepin_checkpoints/{task_id}/{capability}-result.json
+// data/checkpoints/{task_id}/{capability}-result.json
 {...}  // 实际执行结果
 ```
 
@@ -271,8 +271,8 @@ RETRY   → 可恢复错误（暂时性），附 cause
 
 | 目录 | 用途 | 约束 |
 |------|------|------|
-| `/tmp/deepin_traces/` | 状态机 trace | JSONL 格式，每行一 JSON |
-| `/tmp/deepin_checkpoints/` | 检查点文件 | JSON 格式 |
+| `data/traces/` | 状态机 trace | JSONL 格式，每行一 JSON |
+| `data/checkpoints/` | 检查点文件 | JSON 格式 |
 | `/tmp/agent_registry.json` | Agent 注册表 | fcntl.flock 保护 |
 | `/tmp/agent_results/` | Worker 执行结果 | JSON 格式 |
 

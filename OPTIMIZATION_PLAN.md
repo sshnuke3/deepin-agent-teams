@@ -23,7 +23,7 @@ class TaskState(Enum):
 ```
 
 - ✅ 7 种状态，跳转规则全部写死代码
-- ✅ 每次跳转写 trace → `/tmp/deepin_traces/{task_id}.jsonl`
+- ✅ 每次跳转写 trace → `data/traces/{task_id}.jsonl`
 - ✅ 状态机本身无状态，状态存在 Registry 层
 - ✅ 单元测试：5/5 通过
 
@@ -72,7 +72,7 @@ class TaskState(Enum):
 **实现**：`tools/checkpoint_manager.py`
 
 ```
-/tmp/deepin_checkpoints/{task_id}/
+data/checkpoints/{task_id}/
     metadata.json              # attempts / completed_steps
     {capability}-meta.json     # Checkpoint 元信息
     {capability}-result.json   # 执行结果
@@ -89,7 +89,7 @@ class TaskState(Enum):
 
 **实现**：`tools/analyze_traces.py`
 
-- ✅ 加载 `/tmp/deepin_traces/*.jsonl`
+- ✅ 加载 `data/traces/*.jsonl`
 - ✅ 输出：任务摘要 / 高频 FAIL 原因 / 状态跳转统计 / Worker 分布
 - ✅ 无需 API，纯本地分析
 
@@ -104,7 +104,6 @@ class TaskState(Enum):
 ```
 请求 → ModelRouter.chat()
     ↓
-MiniMax（优先，环境变量 MINIMAX_API_KEY）
     ↓ 失败
 ERNIE-lite（备用，token 耗尽时降级）
     ↓ 失败

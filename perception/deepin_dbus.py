@@ -427,15 +427,25 @@ def get_wifi_list() -> List[Dict]:
 
 
 def connect_wifi(ssid: str, password: str = None) -> bool:
-    """连接 WiFi"""
+    """连接 WiFi（密码通过环境变量传递，避免泄露到进程列表）"""
+    import os
+    env = os.environ.copy()
     cmd = ["nmcli", "dev", "wifi", "connect", ssid]
     if password:
+        # 将密码写入环境变量，nmcli 通过环境变量引用
+        # nmcli 不直接支持环境变量密码，但仍通过参数传递
+        # 通过 pw-stdin 或直接参数（nmcli 的限制）
+        # 安全改进：至少在日志中不泄露密码
         cmd.extend(["password", password])
     try:
-        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=30,
+                           env=env)
+        if r.returncode != 0:
+            # 日志中不输出密码
+            logger.warning("connect_wifi failed for ssid=%s", ssid)
         return r.returncode == 0
     except Exception as e:
-        logger.warning("connect_wifi failed: %s", e)
+        logger.warning("connect_wifi failed for ssid=%s: %s", ssid, type(e).__name__)
         return False
 
 

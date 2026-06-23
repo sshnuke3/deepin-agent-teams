@@ -2,7 +2,7 @@
 """
 tools/analyze_traces.py - Trace 分析工具
 
-分析 /tmp/deepin_traces/*.jsonl，输出：
+分析 data/traces/*.jsonl，输出：
 1. 任务级摘要：成功/失败/重试次数
 2. 系统瓶颈：高频 FAIL 点
 3. Worker 效率：每个 worker 的任务量/耗时
@@ -16,7 +16,7 @@ from collections import defaultdict
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional
 
-TRACE_DIR = "/tmp/deepin_traces"
+TRACE_DIR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "traces")
 
 
 @dataclass
@@ -160,7 +160,7 @@ def print_detail(summaries: Dict[str, TaskTraceSummary], limit: int = 10):
 
 def analyze_checkpoints():
     """分析 checkpoint 文件"""
-    cp_dir = "/tmp/deepin_checkpoints"
+    cp_dir = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "checkpoints")
     if not os.path.exists(cp_dir):
         print("[trace] checkpoint 目录不存在（尚未实现 P1-2）")
         return

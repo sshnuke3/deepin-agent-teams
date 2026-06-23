@@ -16,10 +16,9 @@ from enum import Enum
 from typing import Optional, Callable, Dict, Any, List, Tuple
 from dataclasses import dataclass, field
 
-# 路径
 AGENT_DIR = os.path.dirname(os.path.abspath(__file__))
 PROJECT_ROOT = os.path.dirname(AGENT_DIR)
-TRACE_DIR = "/tmp/deepin_traces"
+TRACE_DIR = os.path.join(PROJECT_ROOT, "data", "traces")
 os.makedirs(TRACE_DIR, exist_ok=True)
 
 # 安全配置（工具白名单 + Token 预算 + Confirming 守卫）
@@ -36,6 +35,10 @@ from security_config import (
 )
 
 
+# 检查点持久化
+from checkpoint import save_checkpoint, load_checkpoint, resume_task
+# 进展检测（防Agent循环推诿）
+from progress_detector import ProgressDetector
 class TaskState(Enum):
     """任务状态枚举"""
     PENDING = "pending"      # 入队，未分配
@@ -482,12 +485,27 @@ class TaskStateMachine:
         return [t.to_dict() for t in self._trace]
 
     def _write_trace_record(self, record: StateTransition):
-        """将单条跳转记录追加写入 JSONL 文件"""
+        """将单条跳转记录追加写入 JSONL 文件 + SQLite 检查点"""
         try:
             with open(self._trace_file, "a") as f:
                 f.write(json.dumps(record.to_dict(), ensure_ascii=False) + "\n")
         except Exception as e:
             print(f"[StateMachine] trace write error: {e}")
+
+        # 同步写入 SQLite 检查点
+        try:
+            save_checkpoint(
+                task_id=self.task_id,
+                state=self._state.value,
+                phase=self._current_phase,
+                worker_id=self._ctx.worker_id,
+                retry_count=self._ctx.retry_count,
+                token_used=self._token_tracker.total_tokens,
+                token_budget=GLOBAL_TASK_TOKEN_LIMIT,
+                trace=self.get_trace(),
+            )
+        except Exception as e:
+            print(f"[StateMachine] checkpoint save error: {e}")
 
     def summary(self) -> dict:
         """状态机当前快照（含安全信息）"""

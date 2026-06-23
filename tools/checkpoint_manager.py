@@ -22,7 +22,7 @@ import hashlib
 from typing import Optional, Dict, Any, List
 from dataclasses import dataclass
 
-CHECKPOINT_DIR = "/tmp/deepin_checkpoints"
+CHECKPOINT_DIR = "data/checkpoints"
 
 
 @dataclass
@@ -50,7 +50,7 @@ class CheckpointManager:
     检查点管理器
 
     文件结构：
-    /tmp/deepin_checkpoints/
+    data/checkpoints/
         {task_id}/
             metadata.json          # task 级元信息（创建时间、重试次数）
             {capability}-meta.json  # 单个 capability 的 checkpoint

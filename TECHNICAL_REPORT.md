@@ -1,7 +1,7 @@
 # deepin Agent Teams 智能体团队协作系统 — 技术报告
 
 > **PaddlePaddle 黑客马拉松第10期 · 统信 deepin Agent Teams 赛题**  
-> 提交日期：2026-06-07  
+> 提交日期：2026-06-23  
 > 项目仓库：deepin-agent-teams  
 
 ---
@@ -55,8 +55,10 @@
 | 安全验证检查项 | 11 项独立检查 |
 | 红队攻击向量 | 19 种 |
 | GUI 界面组件 | PyQt5 浮动球 + 聊天窗口 + 系统托盘 |
-| 大模型 | ERNIE-Lite + ERNIE-3.5 + MiniMax |
+| 大模型 | ERNIE-Lite + ERNIE-3.5 |
 | 协议 | MCP (Model Context Protocol) — 纯 Python JSON-RPC over stdio |
+| 持久化 | SQLite checkpoints + JSONL traces |
+| 安全体系 | 7 层纵深防御（工具白名单/危险操作/四值确认/Token预算/隐私保护/输入扫描/进展检测） |
 
 ---
 
@@ -1249,9 +1251,213 @@ class SystemDoctorScenario:
 > 📎 移至 [附录 §6](TECHNICAL_REPORT_APPENDIX.md#6-关键技术实现)
 
 
+## 12. 工程实践优化（2026-06-23）
+
+基于 2026 年多 Agent 工程实践标准，对系统进行的全面审计与优化。
+
+### 12.1 新增组件
+
+#### Checkpoint 持久化（agents/checkpoint.py）
+
+```python
+from checkpoint import save_checkpoint, load_checkpoint, resume_task
+
+# 保存检查点
+save_checkpoint(task_id="task-001", state="running", phase="gather",
+                token_used=1500, token_budget=6000)
+
+# 从检查点恢复
+resume = resume_task("task-001")
+# => {"resume_state": "running", "resume_phase": "gather", ...}
+```
+
+- SQLite 存储，重启不丢失
+- 每次状态跳转自动写入
+- 只恢复未完成任务（retry/running/planning/claimed）
+- 支持过期清理（cleanup_stale）
+
+#### 进展检测器（agents/progress_detector.py）
+
+```python
+detector = ProgressDetector(max_idle_turns=3, max_stale_seconds=120)
+
+for turn in range(max_turns):
+    output = agent.execute(...)
+    detector.record(output, tokens=100)
+    if detector.should_abort():
+        break  # 连续重复输出，熔断
+```
+
+- 防止 Agent 间循环推诿
+- 连续 N 轮重复输出自动熔断
+- 空输出/极短输出视为无进展
+
+#### Agent 间通信安全扫描（agents/input_scanner.py）
+
+```python
+from input_scanner import scan_agent_output, quick_scan
+
+result = scan_agent_output(agent_a_output)
+if not result.safe:
+    print(f"威胁: {result.description}")
+    sanitized = result.sanitized_text  # 清理后的内容
+```
+
+- 注入攻击检测（系统提示伪装、指令覆盖、角色劫持）
+- PII 检测（手机号、身份证、银行卡、密码/token）
+- 危险命令检测（递归删除、数据库删除、远程脚本执行）
+- 自动清理（sanitize）危险内容
+
+### 12.2 模型路由优化
+
+- **成本统计**：stats() 新增 total_tokens 和 by_level（路由命中率）
+- **Token 预算联动**：超预算时自动降级 strong → lite
+- **降级链**：ernie-3.5 → ernie-lite → 本地 fallback
+
+### 12.3 Prompt Caching
+
+```python
+# ContextAwareLLM 响应缓存
+agent = ContextAwareLLM(model_router=router)
+
+# 低温任务自动缓存（temperature < 0.3）
+result1 = agent.chat("分析代码", task_type="code", temperature=0.1)  # 调 API
+result2 = agent.chat("分析代码", task_type="code", temperature=0.1)  # 缓存命中，0 token
+
+# 查看缓存统计
+stats = agent.cache_stats()
+# => {"hits": 1, "misses": 1, "hit_rate": "50.0%", "cached_entries": 1}
+```
+
+- TTL 5 分钟，200 条上限
+- LRU 淘汰（超限清理最旧 20%）
+- 适用场景：意图识别、代码分类、摘要生成
+
+### 12.4 持久化升级
+
+| 项目 | 原方案 | 当前方案 |
+|------|--------|----------|
+| Trace 存储 | /tmp/deepin_traces/ | data/traces/（项目目录内） |
+| 检查点 | 无 | data/checkpoints/（SQLite） |
+| 任务恢复 | 不支持 | resume_task() 从 SQLite 恢复 |
+| 重启持久性 | 丢失 | 完整保留 |
+
+### 12.5 安全体系增强
+
+| 层级 | 组件 | 新增 |
+|------|------|------|
+| 工具层 | 工具白名单 | — |
+| 操作层 | 危险操作检测 | — |
+| 确认层 | 四值确认机制 | — |
+| 预算层 | Token 预算 | 超预算自动降级 |
+| 隐私层 | PrivacyGuard | — |
+| **通信层** | **InputScanner** | **✅ 新增** |
+| **进展层** | **ProgressDetector** | **✅ 新增** |
+
 ---
 
 ## 10. Workshop 改进（2026-06-10）
+
+基于 2026 年多 Agent 工程实践标准，对系统进行的全面审计与优化。
+
+### 12.1 新增组件
+
+#### Checkpoint 持久化（agents/checkpoint.py）
+
+```python
+from checkpoint import save_checkpoint, load_checkpoint, resume_task
+
+# 保存检查点
+save_checkpoint(task_id="task-001", state="running", phase="gather",
+                token_used=1500, token_budget=6000)
+
+# 从检查点恢复
+resume = resume_task("task-001")
+# => {"resume_state": "running", "resume_phase": "gather", ...}
+```
+
+- SQLite 存储，重启不丢失
+- 每次状态跳转自动写入
+- 只恢复未完成任务（retry/running/planning/claimed）
+- 支持过期清理（cleanup_stale）
+
+#### 进展检测器（agents/progress_detector.py）
+
+```python
+detector = ProgressDetector(max_idle_turns=3, max_stale_seconds=120)
+
+for turn in range(max_turns):
+    output = agent.execute(...)
+    detector.record(output, tokens=100)
+    if detector.should_abort():
+        break  # 连续重复输出，熔断
+```
+
+- 防止 Agent 间循环推诿
+- 连续 N 轮重复输出自动熔断
+- 空输出/极短输出视为无进展
+
+#### Agent 间通信安全扫描（agents/input_scanner.py）
+
+```python
+from input_scanner import scan_agent_output, quick_scan
+
+result = scan_agent_output(agent_a_output)
+if not result.safe:
+    print(f"威胁: {result.description}")
+    sanitized = result.sanitized_text  # 清理后的内容
+```
+
+- 注入攻击检测（系统提示伪装、指令覆盖、角色劫持）
+- PII 检测（手机号、身份证、银行卡、密码/token）
+- 危险命令检测（递归删除、数据库删除、远程脚本执行）
+- 自动清理（sanitize）危险内容
+
+### 12.2 模型路由优化
+
+- **成本统计**：stats() 新增 total_tokens 和 by_level（路由命中率）
+- **Token 预算联动**：超预算时自动降级 strong → lite
+- **降级链**：ernie-3.5 → ernie-lite → 本地 fallback
+
+### 12.3 Prompt Caching
+
+```python
+# ContextAwareLLM 响应缓存
+agent = ContextAwareLLM(model_router=router)
+
+# 低温任务自动缓存（temperature < 0.3）
+result1 = agent.chat("分析代码", task_type="code", temperature=0.1)  # 调 API
+result2 = agent.chat("分析代码", task_type="code", temperature=0.1)  # 缓存命中，0 token
+
+# 查看缓存统计
+stats = agent.cache_stats()
+# => {"hits": 1, "misses": 1, "hit_rate": "50.0%", "cached_entries": 1}
+```
+
+- TTL 5 分钟，200 条上限
+- LRU 淘汰（超限清理最旧 20%）
+- 适用场景：意图识别、代码分类、摘要生成
+
+### 12.4 持久化升级
+
+| 项目 | 原方案 | 当前方案 |
+|------|--------|----------|
+| Trace 存储 | /tmp/deepin_traces/ | data/traces/（项目目录内） |
+| 检查点 | 无 | data/checkpoints/（SQLite） |
+| 任务恢复 | 不支持 | resume_task() 从 SQLite 恢复 |
+| 重启持久性 | 丢失 | 完整保留 |
+
+### 12.5 安全体系增强
+
+| 层级 | 组件 | 新增 |
+|------|------|------|
+| 工具层 | 工具白名单 | — |
+| 操作层 | 危险操作检测 | — |
+| 确认层 | 四值确认机制 | — |
+| 预算层 | Token 预算 | 超预算自动降级 |
+| 隐私层 | PrivacyGuard | — |
+| **通信层** | **InputScanner** | **✅ 新增** |
+| **进展层** | **ProgressDetector** | **✅ 新增** |
 
 基于 Agent Workshop W1-W6 课程知识，对项目进行了 8 项系统性改进：
 

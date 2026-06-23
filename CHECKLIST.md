@@ -40,7 +40,7 @@
 | 状态机引擎（所有停止条件写死） | `agents/task_state_machine.py` | ✅ |
 | 独立 Verifier（≠ 执行者） | `agents/verifier.py` | ✅ |
 | Checkpoint 恢复（失败不整体重来） | `tools/checkpoint_manager.py` | ✅ |
-| Trace 可追溯（/tmp/deepin_traces/） | `tools/analyze_traces.py` | ✅ |
+| Trace 可追溯（data/traces/） | `tools/analyze_traces.py` | ✅ |
 
 ### 2.2 智能体团队构建
 
@@ -135,7 +135,7 @@
 | **状态机驱动** | ✅ | 停止条件全部写死代码 |
 | **独立 Verifier** | ✅ | Verifier ≠ 执行者 |
 | **Checkpoint 恢复** | ✅ | CheckpointManager 全部实现 |
-| **Trace 可追溯** | ✅ | /tmp/deepin_traces/ JSONL |
+| **Trace 可追溯** | ✅ | data/traces/ JSONL |
 | **双文心模型路由** | ✅ | ernie-lite(轻量) + ernie-3.5(复杂) |
 | 四大场景完整演示 | ✅ | scenarios/ 全部完成 |
 | GUI交互流畅 | ✅ | main.py --gui（悬浮球+托盘） |

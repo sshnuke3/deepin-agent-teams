@@ -449,6 +449,14 @@ class ContextAwareLLM:
             max_recent_turns=max_recent_turns,
             max_tokens=max_tokens,
         )
+        # System prompt 缓存（相同 prompt 不重复计算 token）
+        self._system_prompt_cache: Dict[str, Tuple[str, int]] = {}  # hash -> (prompt, token_count)
+        # 响应缓存（相同输入+相同task_type → 直接返回缓存结果）
+        self._response_cache: Dict[str, Tuple[str, float]] = {}  # cache_key -> (response, timestamp)
+        self._response_cache_ttl: float = 300  # 缓存有效期（秒）
+        self._response_cache_max: int = 200   # 缓存条目上限
+        self._cache_hits: int = 0
+        self._cache_misses: int = 0
 
     def chat(
         self,
@@ -456,12 +464,26 @@ class ContextAwareLLM:
         system_prompt: str = "",
         task_type: str = "default",
         temperature: float = 0.7,
+        use_cache: bool = True,
     ) -> str:
         """
         带上下文的 LLM 调用
 
         自动注入历史消息，管理窗口大小。
+        响应缓存：相同 system_prompt + task_type + user_message 直接返回。
         """
+        # 响应缓存检查
+        cache_key = ""
+        if use_cache and temperature < 0.3:  # 低温/确定性任务才缓存
+            cache_key = hashlib.md5(
+                f"{system_prompt}|{task_type}|{user_message[:200]}".encode()
+            ).hexdigest()[:16]
+            cached = self._get_cached_response(cache_key)
+            if cached is not None:
+                self._cache_hits += 1
+                return cached
+            self._cache_misses += 1
+
         # 添加用户消息到上下文
         self.context.add_turn("user", user_message)
 
@@ -487,10 +509,54 @@ class ContextAwareLLM:
             except Exception as e:
                 response = f"(LLM 调用失败: {e})"
 
+        # 写入缓存（低温任务）
+        if cache_key and temperature < 0.3:
+            self._put_cached_response(cache_key, response)
+
         # 添加助手回复到上下文
         self.context.add_turn("assistant", response)
 
         return response
+
+    def _get_cached_response(self, cache_key: str) -> Optional[str]:
+        """从缓存获取响应（过期自动清理）"""
+        if cache_key in self._response_cache:
+            response, ts = self._response_cache[cache_key]
+            if time.time() - ts < self._response_cache_ttl:
+                return response
+            else:
+                del self._response_cache[cache_key]  # 过期清理
+        return None
+
+    def _put_cached_response(self, cache_key: str, response: str) -> None:
+        """写入缓存（超限时清理最旧条目）"""
+        if len(self._response_cache) >= self._response_cache_max:
+            # 清理最旧的 20%
+            sorted_keys = sorted(
+                self._response_cache.keys(),
+                key=lambda k: self._response_cache[k][1]
+            )
+            for k in sorted_keys[:self._response_cache_max // 5]:
+                del self._response_cache[k]
+        self._response_cache[cache_key] = (response, time.time())
+
+    def cache_stats(self) -> dict:
+        """缓存统计"""
+        total = self._cache_hits + self._cache_misses
+        return {
+            "hits": self._cache_hits,
+            "misses": self._cache_misses,
+            "hit_rate": f"{100*self._cache_hits/total:.1f}%" if total else "N/A",
+            "cached_entries": len(self._response_cache),
+            "max_entries": self._response_cache_max,
+            "ttl_seconds": self._response_cache_ttl,
+        }
+
+    def clear_cache(self) -> None:
+        """清空缓存"""
+        self._response_cache.clear()
+        self._cache_hits = 0
+        self._cache_misses = 0
 
     def inject_subagent_result(self, task_result: dict) -> None:
         """注入子Agent结果（摘要形式）"""

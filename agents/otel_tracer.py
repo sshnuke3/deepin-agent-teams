@@ -349,8 +349,7 @@ class Tracer:
         model_lower = model.lower()
         if "ernie" in model_lower or "baidu" in model_lower:
             return "baidu"
-        if "minimax" in model_lower:
-            return "minimax"
+
         if "gpt" in model_lower or "openai" in model_lower:
             return "openai"
         if "claude" in model_lower or "anthropic" in model_lower:
@@ -493,7 +492,7 @@ def _test():
     print("Test 13: 模型提供方推断")
     assert Tracer._infer_provider("ernie-lite") == "baidu"
     assert Tracer._infer_provider("ernie-3.5") == "baidu"
-    assert Tracer._infer_provider("minimax-text") == "minimax"
+
     assert Tracer._infer_provider("gpt-4") == "openai"
     assert Tracer._infer_provider("claude-3") == "anthropic"
     assert Tracer._infer_provider("unknown-model") == "unknown"

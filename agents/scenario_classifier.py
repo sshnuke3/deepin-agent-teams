@@ -349,7 +349,7 @@ class DynamicModelRouter:
 
     根据任务复杂度自动选择模型：
     - 简单任务（1步计划）→ ernie-lite
-    - 复杂任务（3+步计划）→ ernie-3.5（或切到 MiniMax）
+    - 复杂任务（3+步计划）→ ernie-3.5
     - 路由决策写入 trace
 
     使用方式：
