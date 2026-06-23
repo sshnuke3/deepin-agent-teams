@@ -39,7 +39,7 @@ server = MCPServer("system-service", version="1.0.0")
 def exec_command(command, timeout=30, cwd=None):
     try:
         result = subprocess.run(
-            command, shell=True, capture_output=True, text=True,
+            command, shell=False, capture_output=True, text=True,
             timeout=timeout, cwd=cwd,
         )
         return {
@@ -94,10 +94,9 @@ def system_info():
 )
 def check_process(name):
     result = subprocess.run(
-        f"ps aux | grep '{name}' | grep -v grep",
-        shell=True, capture_output=True, text=True, timeout=10,
+        ["ps", "aux"], capture_output=True, text=True, timeout=10,
     )
-    lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip()]
+    lines = [l.strip() for l in result.stdout.strip().split('\n') if l.strip() and name in l and 'grep' not in l]
     return {
         "keyword": name,
         "running": len(lines) > 0,
@@ -119,9 +118,12 @@ def check_process(name):
 def git_status(path="."):
     try:
         r = subprocess.run(
-            "git status --porcelain && echo '---' && git log --oneline -5",
-            shell=True, capture_output=True, text=True, timeout=10, cwd=path,
+            ["git", "status", "--porcelain"], capture_output=True, text=True, timeout=10, cwd=path,
         )
+        log = subprocess.run(
+            ["git", "log", "--oneline", "-5"], capture_output=True, text=True, timeout=10, cwd=path,
+        )
+        r.stdout = r.stdout + "---\n" + log.stdout
         return {
             "path": path,
             "output": r.stdout[:3000],
@@ -144,11 +146,11 @@ def git_status(path="."):
     }
 )
 def install_package(package, upgrade=False):
-    cmd = f"pip install {package}"
+    cmd = ["pip", "install", package]
     if upgrade:
-        cmd += " --upgrade"
+        cmd.append("--upgrade")
     result = subprocess.run(
-        cmd, shell=True, capture_output=True, text=True, timeout=120,
+        cmd, capture_output=True, text=True, timeout=120,
     )
     return {
         "package": package,

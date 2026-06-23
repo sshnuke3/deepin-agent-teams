@@ -2,12 +2,15 @@
 剪贴板监控模块
 监听剪贴板变化，支持文本和图片
 """
+import logging
 import subprocess
 import time
 import threading
 from datetime import datetime
 from typing import Callable, Optional
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 
 class ClipboardMonitor:
@@ -124,8 +127,8 @@ class ClipboardMonitor:
             for callback in self._callbacks:
                 try:
                     callback(current)
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("Clipboard callback failed: %s", e)
             return current
         return None
 

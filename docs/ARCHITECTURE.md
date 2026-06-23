@@ -55,7 +55,7 @@ deepin-agent-teams/
 │   ├── otel_tracer.py               # OpenTelemetry 可观测性封装
 │   ├── model_router.py              # 双文心模型路由器
 │   ├── registry.py                  # Agent 注册中心（支持 Agent Card 自动发现）
-│   ├── base_agent.py                # 智能体基类
+│   ├── base.py                      # 智能体基类
 │   ├── system_operator.py           # 系统运维智能体
 │   ├── information_collector.py     # 信息采集智能体
 │   ├── content_creator.py           # 内容创作智能体
@@ -89,7 +89,7 @@ deepin-agent-teams/
 │       └── general.md
 │
 ├── skills/                          # Skills 模块
-│   └── __init__.py                  # SkillDef / SkillRegistry / SkillExecutor（750 行）
+│   └── __init__.py                  # SkillDef / SkillRegistry / SkillExecutor（778 行）
 │
 ├── perception/                      # 环境感知层（10 个模块）
 │   ├── screen_capture.py            # 屏幕截图
@@ -98,7 +98,7 @@ deepin-agent-teams/
 │   ├── window_manager.py            # 窗口元数据
 │   ├── system_monitor.py            # 系统资源监控
 │   ├── deepin_dbus.py               # D-Bus DDE 集成（615 行）
-│   ├── context_engine.py            # 多模态融合意图引擎（430 行）
+│   ├── context_engine.py            # 多模态融合意图引擎（454 行）
 │   ├── behavior_tracker.py          # 行为轨迹追踪
 │   ├── privacy_guard.py             # 隐私数据守护
 │   └── resource_guard.py            # 资源使用监控
@@ -107,25 +107,34 @@ deepin-agent-teams/
 │   └── mcp_protocol.py              # 纯 Python JSON-RPC over stdio 实现
 │
 ├── tools/                           # 工具实现
-│   ├── shell_tool.py                # Shell 命令执行
-│   ├── file_tool.py                 # 文件读写
-│   ├── search_tool.py               # 信息检索
-│   └── package_tool.py              # 包管理
+│   ├── tool_registry.py             # 工具注册中心
+│   ├── checkpoint_manager.py        # Checkpoint 管理
+│   ├── analyze_traces.py            # Trace 分析
+│   ├── analyze_capabilities.py      # 能力分析
+│   └── mcp_adapter.py               # MCP 适配器
 │
 ├── scenarios/                       # 核心场景
 │   ├── email_assistant.py           # 智能邮件助手
-│   └── system_doctor.py             # 系统问题诊断
+│   ├── system_doctor.py             # 系统问题诊断
+│   ├── code_analysis.py             # 代码分析
+│   └── literature_review.py         # 文献综述
 │
 ├── gui/                             # PyQt5 图形界面
 │   ├── floating_ball.py             # 浮动球
 │   ├── chat_window.py               # 聊天窗口
-│   └── tray_icon.py                 # 系统托盘
+│   ├── tray_icon.py                 # 系统托盘
+│   ├── auto_executor.py             # 自动执行器
+│   ├── decision_engine.py           # 决策引擎
+│   ├── feedback_tracker.py          # 反馈追踪器
+│   ├── main_gui.py                  # 主界面
+│   ├── perception_bridge.py         # 感知桥接
+│   └── styles.py                    # 样式定义
 │
 ├── main.py                          # 入口
 └── config.py                        # 全局配置
 ```
 
-代码统计：~27,000 行 Python，82 个文件；~230 行 JSON（8 个文件）；154 行 Prompt 模板（10 个文件）。
+代码统计：~26,500 行 Python，81 个文件；~230 行 JSON（8 个文件）；154 行 Prompt 模板（10 个文件）。
 
 ---
 
@@ -137,14 +146,11 @@ deepin-agent-teams/
 
 ```
 PENDING ──▶ CLAIMED ──▶ PLANNING ──▶ RUNNING ──▶ VERIFIED ──▶ COMPLETED
-                                             │           │
-                                             │           ▼
-                                             │        FAILED ──▶ (retry) ──▶ RUNNING
-                                             ▼
-                                            RETRY（≤3次）
-                                             │
-                                             ▼
-                                           RUNNING
+              │            │            │           │
+              │            │            │           ▼
+              │            │            │        FAILED
+              ▼            ▼            ▼
+           FAILED       FAILED       RETRY ──▶ PENDING
 ```
 
 **PLANNING 状态**（新增）：Worker 认领后必须先生成结构化执行计划才能进入 RUNNING。
@@ -157,18 +163,20 @@ RUNNING 状态内部细分为四个子阶段：
 
 ```
 RUNNING:
-  gather ──▶ analyze ──▶ execute
+  plan ──▶ gather ──▶ analyze ──▶ execute
 ```
 
+> 注：从 PLANNING 进入 RUNNING 时当前阶段初始化为 `gather`（`plan` 阶段已在 PLANNING 完成），从其他状态进入时初始化为 `plan`
 
 ### 3.2 每阶段工具白名单
 
 | 状态/子阶段 | 允许的工具 |
 |--------|--------|
 | PLANNING | （无，纯推理） |
-| RUNNING:gather | search, file_read, ocr, clipboard_read, window_list |
-| RUNNING:analyze | python_eval |
-| RUNNING:execute | shell, package, dbus_call, file_write |
+| RUNNING:plan | （无，纯推理） |
+| RUNNING:gather | file_reader, dir_scanner, code_analyzer, ast_parser, syntax_checker, dependency_analyzer, git_analyzer, web_search, web_fetcher |
+| RUNNING:analyze | 所有只读工具 + code_analyzer, ast_parser, syntax_checker, dependency_analyzer |
+| RUNNING:execute | 所有只读工具 + file_writer, shell_executor, process_manager, markdown_writer, doc_generator |
 
 ### 3.3 每阶段 Token 预算
 
@@ -176,8 +184,8 @@ RUNNING:
 |--------|-----------|
 | plan | 500 |
 | gather | 2000 |
-| analyze | 1500 |
-| execute | 1000 |
+| analyze | 2000 |
+| execute | 1500 |
 
 ### 3.4 验证器（Verifier）
 
@@ -215,7 +223,7 @@ RUNNING:
 
 ## 4. 统一编排器
 
-`agents/orchestrator.py`（927 行）是合并了 v3/v4/prod 三个变体后的统一编排器。
+`agents/orchestrator.py`（1326 行）是合并了 v3/v4/prod 三个变体后的统一编排器。
 
 ### 4.1 两种执行模式
 
@@ -240,7 +248,7 @@ execute_task(task)
   ├── 3. PLANNING → RUNNING: 进入子阶段循环
   │     ├── gather: 采集信息
   │     ├── analyze: 分析结果
-  │     ├── execute: 执行操作
+  │     └── execute: 执行操作
   ├── 4. RUNNING → VERIFIED: 11 项验证检查
   ├── 5. VERIFIED → COMPLETED (或 FAILED → retry)
   └── 全程 Trace 记录 + Checkpoint + OTel Span
@@ -303,7 +311,7 @@ result = debate.run(topic, context)
 
 ## 6. Skills 模块
 
-`skills/__init__.py`（750 行）实现了基于能力的任务路由机制。
+`skills/__init__.py`（778 行）实现了基于能力的任务路由机制。
 
 ### 6.1 核心组件
 
@@ -362,21 +370,35 @@ class SkillExecutor:
 | 工具白名单 | 每个 Agent 只能调用预定义的工具集 | security_config.py |
 | Token 预算 | 每阶段/每任务独立 Token 上限 | security_config.py |
 | 确认守卫 | 高危操作前强制用户确认 | security_config.py |
-| 红队测试 | 16 种攻击向量覆盖 | verifier.py |
+| 红队测试 | 19 种攻击向量覆盖 | red_team_tests.py |
 
 ### 7.2 工具白名单
 
 ```python
-TOOL_WHITELIST = {
-    "SystemOperator":     ["shell", "system_monitor", "dbus_call", "package", "file_read", "service_manage"],
-    "InformationCollector": ["search", "file_read", "ocr", "clipboard_read", "window_list", "web_fetch"],
-    "ContentCreator":      ["file_read", "clipboard_read", "file_write", "ocr"],
+# 按状态定义工具白名单
+STATE_TOOL_WHITELIST = {
+    "PENDING":   [],                          # 无工具
+    "CLAIMED":   [],                          # 无工具
+    "PLANNING":  [],                          # 纯推理，无工具
+    "RUNNING":   READONLY_TOOLS + WRITE_TOOLS, # 全部可用
+    "VERIFIED":  [],                          # 无工具
+    "COMPLETED": [],                          # 无工具
+    "FAILED":    [],                          # 无工具
+    "RETRY":     [],                          # 无工具
+}
+
+# 按 RUNNING 内部分阶段的工具白名单
+RUNNING_PHASE_TOOLS = {
+    "plan":    [],                            # 纯推理，无工具
+    "gather":  READONLY_TOOLS,                # 信息收集：只读
+    "analyze": READONLY_TOOLS + ANALYSIS_TOOLS, # 分析：只读 + 分析
+    "execute": READONLY_TOOLS + WRITE_TOOLS,  # 执行：全部
 }
 ```
 
 ### 7.3 红队攻击向量
 
-覆盖 16 种攻击：prompt injection（3种）、tool abuse（2种）、data exfiltration（2种）、resource exhaustion（2种）、privilege escalation（2种）、social engineering（2种）、combined attacks（3种）。
+覆盖 19 种攻击：prompt injection（3种）、tool bypass（2种）、token bypass（2种）、state bypass（2种）、confirm bypass（2种）、combined attacks（8种）。
 
 ---
 

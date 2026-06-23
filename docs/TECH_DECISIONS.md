@@ -14,7 +14,7 @@
 - 复杂任务（邮件生成/诊断/代码分析）→ ernie-3.5（强/贵）
 - 强模型失败自动降级到 lite
 
-**更新（2026-05-22）：** 当前 token 已耗尽，ERNIE 仅作降级备选。
+**更新（2026-05-22）：** ERNIE 为主力模型，MiniMax 作为第三方备选（仅在 ERNIE 全部不可用时降级）。
 
 ## PyQt5
 
@@ -47,9 +47,9 @@
 
 ## 多模型路由（ModelRouter）
 
-**选型原因：** MiniMax 为主力模型，ERNIE 作降级备选。避免单点故障。
+**选型原因：** ERNIE 为主力模型，MiniMax 作第三方备选。避免单点故障。
 **实现方式：** 按优先级尝试调用，失败自动切换。
-**路由链：** MiniMax → ERNIE-lite → ERNIE-3.5 → Fallback（返回错误信息）
+**路由链：** 指定模型（ernie-lite / ernie-3.5）→ ERNIE-lite（降级）→ MiniMax（第三方备选）→ Fallback（返回错误信息）
 **响应格式：** 统一 ModelResponse（content/success/error/latency_ms/token_used）
 **环境变量：** `MINIMAX_API_KEY` / `ERNIE_TOKEN`
 

@@ -1,3 +1,6 @@
 __pycache__/
 *.pyc
 .env
+venv/
+tests/test_results_*
+test_results_*

@@ -40,7 +40,7 @@ except ImportError:
     MODEL_ROUTING = {}
     ERNIEBOT_ACCESS_TOKEN = ""
     ERNIEBOT_STRONG_TOKEN = ""
-    DEFAULT_ACCESS_TOKEN = "0b93205ac0fc59d69166edb8e24cf1bc48aed453"
+    DEFAULT_ACCESS_TOKEN = os.environ.get("DEFAULT_ACCESS_TOKEN", "")
 
 # MiniMax 作为第三方备选
 MINIMAX_API_KEY = os.environ.get("MINIMAX_API_KEY", "")
@@ -75,7 +75,7 @@ class ModelRouter:
         两者均失败 → MiniMax（第三方备选）
     """
 
-    def __init__(self, verbose: bool = True):
+    def __init__(self, verbose: bool = True) -> None:
         self.verbose = verbose
         self._ernie_available = False
         self._minimax_available = False

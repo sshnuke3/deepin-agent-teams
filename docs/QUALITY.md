@@ -294,9 +294,9 @@ RETRY   → 可恢复错误（暂时性），附 cause
 | hands_interface.py | 请求/响应 + MockHands + Factory | 7/7 通过 |
 | environment_isolation.py | 三级隔离 + 配额 + 销毁 | 8/8 通过 |
 | checkpoint_manager.py | save/load/cleanup/verify | 6/6 通过 |
-| model_router.py | 初始化/message 构建/stats | 4/4 通过（不调 API） |
+| model_router.py | 初始化/路由表/message 构建/stats/双模型覆盖 | 7/7 通过（不调 API） |
 
-**总计：95/95 测试通过，19/19 攻击向量防御**
+**总计：96/96 测试通过，19/19 攻击向量防御**
 
 ### 集成测试
 

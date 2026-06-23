@@ -2,12 +2,15 @@
 隐私保护机制
 敏感数据检测、脱敏处理、操作审计日志
 """
+import logging
 import os
 import re
 import json
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, asdict
 from datetime import datetime
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -199,8 +202,8 @@ class PrivacyGuard:
             data = [asdict(r) for r in self._audit_log[-200:]]
             with open(self._log_path, "w") as f:
                 json.dump(data, f, ensure_ascii=False, indent=2)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to save audit log: %s", e)
 
     def _load_audit_log(self):
         """加载审计日志"""
@@ -210,8 +213,8 @@ class PrivacyGuard:
             with open(self._log_path) as f:
                 data = json.load(f)
             self._audit_log = [AuditRecord(**r) for r in data]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load audit log: %s", e)
 
 
 # 全局单例

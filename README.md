@@ -1,6 +1,6 @@
 # deepin-agent-teams
 
-> 🤖 **多智能体协作系统** — 第十期飞桨黑客松 · 统信 × 百度飞桨 · 进阶任务 #27
+> 🤖 **多智能体协作系统** — [第十期飞桨黑客松](https://www.deepin.org/zh/paddle-hackathon-10th-deepin/) · 统信 × 百度飞桨 · [进阶任务 #27](https://github.com/PaddlePaddle/community/blob/master/hackathon/hackathon_10th/%E3%80%90Hackathon_10th%E3%80%91%E6%96%87%E5%BF%83%E5%90%88%E4%BD%9C%E4%BC%99%E4%BC%B4%E4%BB%BB%E5%8A%A1%E5%90%88%E9%9B%86.md#%E7%BB%9F%E4%BF%A1deepin-agent-teams-%E6%99%BA%E8%83%BD%E4%BD%93%E5%9B%A2%E9%98%9F%E5%8D%8F%E4%BD%9C%E7%B3%BB%E7%BB%9F)
 
 ![Python](https://img.shields.io/badge/Python-3.10%2B-blue?style=flat-square&logo=python&logoColor=white)
 ![Platform](https://img.shields.io/badge/Platform-deepin%2025-orange?style=flat-square)
@@ -237,14 +237,14 @@ deepin-agent-teams/
 ### 运行编排器（v3 — 原版）
 
 ```bash
-cd ~/.openclaw/workspace/deepin-agent-teams
+cd /path/to/deepin-agent-teams
 python3 agents/orchestrator_v3.py
 ```
 
 ### 运行编排器（v4 — MCP 驱动）
 
 ```bash
-cd ~/.openclaw/workspace/deepin-agent-teams
+cd /path/to/deepin-agent-teams
 python3 agents/orchestrator_v4.py
 ```
 
@@ -296,7 +296,7 @@ python3 tests/benchmark.py
 # 各模块单元测试
 python3 agents/planner.py           # Planner（9/9）
 python3 agents/task_state_machine.py # 状态机（12/12）
-python3 agents/verifier.py          # Verifier（19/19）
+python3 agents/verifier.py          # Verifier（13/13）
 python3 agents/context_manager.py   # 上下文管理（11/11）
 python3 agents/prompt_loader.py     # Prompt 模板（12/12）
 python3 agents/debate.py            # 辩论模式（10/10）

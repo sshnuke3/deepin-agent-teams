@@ -11,8 +11,8 @@ load_dotenv()
 ERNIEBOT_ACCESS_TOKEN = os.getenv("ERNIEBOT_ACCESS_TOKEN", "")
 # 强模型 token（可单独配置，为空则与 lite 共用）
 ERNIEBOT_STRONG_TOKEN = os.getenv("ERNIEBOT_STRONG_TOKEN", "")
-# 默认 token（来自 MEMORY.md）
-DEFAULT_ACCESS_TOKEN = "0b93205ac0fc59d69166edb8e24cf1bc48aed453"
+# 默认 token（留空，必须通过 .env 或环境变量设置）
+DEFAULT_ACCESS_TOKEN = os.getenv("DEFAULT_ACCESS_TOKEN", "")
 
 # 双模型配置
 MODEL_LITE = os.getenv("MODEL_LITE", "ernie-lite")       # 轻量快速

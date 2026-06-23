@@ -11,6 +11,7 @@ mcp_servers/mcp_protocol.py - 轻量级 MCP 协议实现
 
 设计参考：https://modelcontextprotocol.io/specification
 """
+import logging
 import json
 import sys
 import os
@@ -20,6 +21,8 @@ import time
 from typing import Dict, List, Any, Callable, Optional
 from dataclasses import dataclass, field, asdict
 from abc import ABC, abstractmethod
+
+logger = logging.getLogger(__name__)
 
 
 # ========== MCP 协议消息类型 ==========
@@ -347,8 +350,8 @@ class MCPClient:
             line = json.dumps(msg) + "\n"
             self._process.stdin.write(line)
             self._process.stdin.flush()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("MCP send notification failed: %s", e)
 
     @property
     def server_name(self) -> str:

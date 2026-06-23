@@ -3,9 +3,12 @@
 使用 PaddleOCR/PaddleOCR-VL 进行屏幕内容识别
 支持轻量降级：无 GPU/低内存时使用备用方案
 """
+import logging
 import os
 import subprocess
 from typing import Dict, List, Tuple, Optional
+
+logger = logging.getLogger(__name__)
 
 # 懒加载
 _paddle_ocr_cache = None
@@ -137,8 +140,8 @@ def ocr_screen(region: Tuple[int, int, int, int] = None, lang: str = "ch") -> Di
     # 清理截图
     try:
         os.remove(image_path)
-    except:
-        pass
+    except Exception as e:
+        logger.warning("Failed to remove temp screenshot %s: %s", image_path, e)
 
     return result
 
@@ -243,8 +246,8 @@ def test():
                     if mb < 1500:
                         print("⚠️ 内存不足，OCR 可能不稳定")
                     break
-    except:
-        pass
+    except Exception as e:
+        logger.warning("Failed to read /proc/meminfo: %s", e)
 
     # 测试图片 OCR
     print("\n测试图片 OCR...")

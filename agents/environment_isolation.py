@@ -111,7 +111,7 @@ class EnvironmentManager:
     不关心底层用什么技术隔离（Docker/进程/目录），只管理策略。
     """
 
-    def __init__(self, sandbox_root: str = None):
+    def __init__(self, sandbox_root: str = None) -> None:
         self._root = sandbox_root or SANDBOX_ROOT
         self._environments: Dict[str, Environment] = {}
         self._shared_env: Optional[Environment] = None
@@ -190,7 +190,7 @@ class EnvironmentManager:
         self._environments[env_id] = env
         return env
 
-    def destroy(self, env_id: str):
+    def destroy(self, env_id: str) -> None:
         """销毁环境（清理资源）"""
         env = self._environments.get(env_id)
         if not env:
@@ -208,7 +208,7 @@ class EnvironmentManager:
 
         del self._environments[env_id]
 
-    def destroy_all(self):
+    def destroy_all(self) -> None:
         """销毁所有环境"""
         env_ids = list(self._environments.keys())
         for env_id in env_ids:

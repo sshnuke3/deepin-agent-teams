@@ -2,10 +2,13 @@
 环境感知与意图识别引擎
 整合屏幕感知、剪贴板、窗口上下文
 """
+import logging
 import os
 import sys
 from typing import Dict, List, Optional
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -90,16 +93,16 @@ class ContextEngine:
                 ctx.window_title = window.title
                 ctx.window_type = get_window_classification(window.title, window.class_name)
                 ctx.active_app = window.class_name or window.title
-        except Exception:
-            pass  # 窗口感知不可用时静默降级
+        except Exception as e:
+            logger.warning("Window context gathering failed: %s", e)
 
         # 剪贴板
         try:
             from perception.clipboard_monitor import ClipboardMonitor
             monitor = ClipboardMonitor()
             ctx.clipboard_text = monitor.get_text()[:500]  # 限制长度
-        except Exception:
-            pass  # 剪贴板不可用时静默降级
+        except Exception as e:
+            logger.warning("Clipboard gathering failed: %s", e)
 
         # 屏幕 OCR
         try:
@@ -107,8 +110,8 @@ class ContextEngine:
             screen_result = ocr_screen()
             if screen_result.get("success"):
                 ctx.screen_text = screen_result.get("full_text", "")[:1000]
-        except Exception:
-            pass  # OCR 不可用时静默降级
+        except Exception as e:
+            logger.warning("Screen OCR gathering failed: %s", e)
 
         # 隐私保护：脱敏处理
         ctx = self._apply_privacy_filter(ctx)
@@ -143,8 +146,8 @@ class ContextEngine:
                 detail=f"window={ctx.window_title[:50]}, clip_len={len(ctx.clipboard_text)}, screen_len={len(ctx.screen_text)}",
                 sensitive=False,
             )
-        except Exception:
-            pass  # 隐私过滤失败不阻塞主流程
+        except Exception as e:
+            logger.warning("Privacy filter failed: %s", e)
         return ctx
 
     def recognize_intent(self, user_input: str = None, context: UserContext = None) -> IntentResult:

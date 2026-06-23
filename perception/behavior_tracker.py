@@ -2,6 +2,7 @@
 行为序列追踪器
 记录用户操作行为序列，学习工作模式，预测下一步操作
 """
+import logging
 import os
 import json
 import time
@@ -9,6 +10,8 @@ from typing import Dict, List, Optional
 from dataclasses import dataclass, asdict
 from datetime import datetime, timedelta
 from collections import Counter
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -201,8 +204,8 @@ class BehaviorTracker:
             with open(path) as f:
                 data = json.load(f)
             self.events = [BehaviorEvent(**e) for e in data]
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("Failed to load behavior log: %s", e)
 
 
 # 全局单例

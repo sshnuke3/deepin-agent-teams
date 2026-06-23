@@ -2,10 +2,13 @@
 智能邮件助手场景
 识别用户发邮件意图 → 收集上下文 → 生成邮件 → 发送
 """
+import logging
 import os
 import sys
 import re
 from typing import Dict, List, Optional
+
+logger = logging.getLogger(__name__)
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -143,7 +146,7 @@ class EmailAssistant:
                 return {"success": True, "method": "thunderbird", "message": "已打开 Thunderbird，请确认发送"}
 
         except Exception as e:
-            pass
+            logger.warning("send_email thunderbird method failed: %s", e)
 
         # 方法2: 使用 mailx / sendmail
         try:
@@ -175,7 +178,7 @@ class EmailAssistant:
                     return {"success": True, "method": "mailx", "message": "邮件发送成功"}
 
         except Exception as e:
-            pass
+            logger.warning("send_email mailx method failed: %s", e)
 
         # 方法3: 输出为文件，用户手动发送
         try:

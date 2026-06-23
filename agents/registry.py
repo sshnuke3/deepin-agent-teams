@@ -26,19 +26,20 @@ def _get_lock():
     return _lock_fd
 
 
-def acquire_lock():
+def acquire_lock() -> None:
     """获取文件锁"""
     lock_fd = _get_lock()
     fcntl.flock(lock_fd.fileno(), fcntl.LOCK_EX)
 
 
-def release_lock():
+def release_lock() -> None:
     """释放文件锁"""
     lock_fd = _get_lock()
     fcntl.flock(lock_fd.fileno(), fcntl.LOCK_UN)
 
 
 def read_registry() -> Dict:
+    """读取注册中心文件"""
     acquire_lock()
     try:
         if os.path.exists(REGISTRY_FILE):
@@ -49,7 +50,8 @@ def read_registry() -> Dict:
         release_lock()
 
 
-def write_registry(registry: Dict):
+def write_registry(registry: Dict) -> None:
+    """写入注册中心文件（原子写入）"""
     acquire_lock()
     try:
         os.makedirs(os.path.dirname(REGISTRY_FILE) or '.', exist_ok=True)
@@ -73,7 +75,7 @@ class AgentRegistry:
     _instance = None
     _lock = threading.Lock()
 
-    def __new__(cls):
+    def __new__(cls) -> 'AgentRegistry':
         if cls._instance is None:
             with cls._lock:
                 if cls._instance is None:
@@ -81,7 +83,7 @@ class AgentRegistry:
                     cls._instance._initialized = False
         return cls._instance
 
-    def __init__(self):
+    def __init__(self) -> None:
         if self._initialized:
             return
         self._initialized = True
@@ -212,7 +214,7 @@ class AgentRegistry:
         finally:
             release_lock()
 
-    def unregister(self):
+    def unregister(self) -> None:
         """注销当前 Agent"""
         acquire_lock()
         try:
@@ -223,7 +225,7 @@ class AgentRegistry:
         finally:
             release_lock()
 
-    def heartbeat(self):
+    def heartbeat(self) -> None:
         """更新心跳"""
         acquire_lock()
         try:
@@ -249,8 +251,8 @@ class AgentRegistry:
 
         return matching
 
-    def find_best_agent(self, capabilities_needed: List[str]) -> str:
-        """找到最适合的 Agent（优先级：idle > working）"""
+    def find_best_agent(self, capabilities_needed: List[str]) -> Optional[str]:
+        """找到能力匹配的最优 Agent（idle 优先）"""
         candidates = []
 
         for cap in capabilities_needed:
@@ -269,8 +271,8 @@ class AgentRegistry:
                 return c["id"]
         return candidates[0]["id"] if candidates else None
 
-    def update_status(self, agent_id: str, status: str):
-        """更新 Agent 状态"""
+    def update_status(self, agent_id: str, status: str) -> None:
+        """更新指定 Agent 的运行状态"""
         acquire_lock()
         try:
             registry = read_registry()
@@ -346,8 +348,8 @@ class AgentRegistry:
 
         return None
 
-    def complete_task(self, task_id: str, result: Dict):
-        """标记任务完成"""
+    def complete_task(self, task_id: str, result: Dict) -> None:
+        """标记任务为完成并保存结果"""
         acquire_lock()
         try:
             registry = read_registry()
@@ -371,8 +373,8 @@ class AgentRegistry:
         finally:
             release_lock()
 
-    def get_result(self, task_id: str) -> Dict:
-        """获取任务结果"""
+    def get_result(self, task_id: str) -> Optional[Dict]:
+        """获取已完成任务的结果"""
         acquire_lock()
         try:
             registry = read_registry()
@@ -384,11 +386,11 @@ class AgentRegistry:
         return None
 
     def list_agents(self) -> Dict:
-        """列出所有注册 Agent"""
+        """返回当前所有注册的 Agent"""
         return read_registry()["agents"]
 
-    def list_tasks(self, status: str = None) -> List[Dict]:
-        """列出任务"""
+    def list_tasks(self, status: Optional[str] = None) -> List[Dict]:
+        """按状态筛选并返回任务列表"""
         registry = read_registry()
         tasks = registry.get("task_queue", [])
         if status:

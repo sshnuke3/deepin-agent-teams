@@ -8,13 +8,14 @@ import os
 import time
 import subprocess
 import glob
+from typing import Optional
 
 
 TASK_FILE = "/tmp/agent_task_researcher.json"
 RESULT_FILE = "/tmp/agent_result_researcher.json"
 
 
-def read_task():
+def read_task() -> Optional[dict]:
     """读取任务文件（读取后删除）"""
     if os.path.exists(TASK_FILE):
         with open(TASK_FILE, 'r') as f:
@@ -24,7 +25,7 @@ def read_task():
     return None
 
 
-def write_result(result):
+def write_result(result: dict) -> None:
     """写入结果文件"""
     with open(RESULT_FILE, 'w') as f:
         json.dump(result, f, ensure_ascii=False, indent=2)
@@ -69,8 +70,9 @@ def read_key_files(project_path: str, max_files: int = 5, max_chars: int = 3000)
                 try:
                     size = os.path.getsize(fp)
                     py_files.append((fp, size))
-                except:
-                    pass
+                except Exception:
+                    import logging
+                    logging.getLogger(__name__).warning("Failed to stat file: %s", fp)
     
     # 取最大的几个
     py_files.sort(key=lambda x: x[1], reverse=True)
@@ -135,7 +137,7 @@ def run_researcher(task: dict) -> dict:
     }
 
 
-def main():
+def main() -> None:
     print(f"[Researcher] 子进程启动 PID={os.getpid()}", flush=True)
     
     # 通知 Lead 已就绪

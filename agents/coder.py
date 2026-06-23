@@ -18,8 +18,10 @@ class CoderAgent(BaseAgent):
     def run_command(self, cmd: str) -> str:
         """执行 Shell 命令"""
         try:
+            import shlex
+            cmd_parts = shlex.split(cmd)
             result = subprocess.run(
-                cmd, shell=True, capture_output=True, text=True, timeout=60
+                cmd_parts, capture_output=True, text=True, timeout=60
             )
             output = f"[EXIT {result.returncode}]\n"
             if result.stdout:

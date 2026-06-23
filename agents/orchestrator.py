@@ -178,19 +178,19 @@ def _log(color: str, prefix: str, msg: str, verbose: bool = True):
     print(f"{color}[{ts}] {prefix}{_Colors.RESET} {msg}", flush=True)
 
 
-def log_info(msg: str, verbose: bool = True):
+def log_info(msg: str, verbose: bool = True) -> None:
     _log(_Colors.BLUE, "INFO ", msg, verbose)
 
 
-def log_ok(msg: str, verbose: bool = True):
+def log_ok(msg: str, verbose: bool = True) -> None:
     _log(_Colors.GREEN, "OK   ", msg, verbose)
 
 
-def log_warn(msg: str, verbose: bool = True):
+def log_warn(msg: str, verbose: bool = True) -> None:
     _log(_Colors.YELLOW, "WARN ", msg, verbose)
 
 
-def log_error(msg: str, verbose: bool = True):
+def log_error(msg: str, verbose: bool = True) -> None:
     _log(_Colors.RED, "ERROR", msg, verbose)
 
 
@@ -259,7 +259,7 @@ class Orchestrator:
 
     # ==================== MCP Server 管理（tools 模式）====================
 
-    def connect_mcp_server(self, name: str, command: str, args: List[str]):
+    def connect_mcp_server(self, name: str, command: str, args: List[str]) -> None:
         """
         连接一个 MCP Server
 
@@ -285,7 +285,7 @@ class Orchestrator:
 
         log_ok(f"MCP Server 已连接: {name} → {[t['name'] for t in tools]}", self.verbose)
 
-    def auto_connect_mcp_servers(self, servers_dir: str = None):
+    def auto_connect_mcp_servers(self, servers_dir: str = None) -> None:
         """
         自动扫描并连接所有内置 MCP Server
 
@@ -312,7 +312,7 @@ class Orchestrator:
         self, name: str, handler: Callable,
         schema: dict = None, description: str = "",
         requires_confirm: bool = False,
-    ):
+    ) -> None:
         """注册本地工具（tools 模式下）"""
         if self.tool_registry is None:
             raise RuntimeError("tools 模式未初始化")
@@ -324,7 +324,7 @@ class Orchestrator:
 
     # ==================== Worker 管理（workers 模式）====================
 
-    def spawn_workers(self, worker_configs: List[tuple] = None):
+    def spawn_workers(self, worker_configs: List[tuple] = None) -> None:
         """
         启动 Worker 子进程池
 
@@ -377,17 +377,18 @@ class Orchestrator:
         agents = self.registry.list_agents()
         log_ok(f"Worker 池就绪: {len(agents)} 个已注册", self.verbose)
 
-    def stop_workers(self):
+    def stop_workers(self) -> None:
         """终止所有 Worker 子进程"""
         for role, _, proc in self.workers:
             try:
                 proc.terminate()
                 proc.wait(timeout=3)
-            except Exception:
+            except Exception as e:
+                log_warn(f"Worker terminate failed: {e}", self.verbose)
                 try:
                     proc.kill()
-                except Exception:
-                    pass
+                except Exception as e2:
+                    log_warn(f"Worker kill also failed: {e2}", self.verbose)
         self.workers.clear()
 
     # ==================== 任务分解 ====================
@@ -1095,7 +1096,8 @@ capability → agent_type 映射：
                     "temperature": 0.1,
                 })
                 channels["mcp_model_service"] = result.success
-            except Exception:
+            except Exception as e:
+                log_warn(f"MCP model service health check failed: {e}", self.verbose)
                 channels["mcp_model_service"] = False
         else:
             channels["mcp_model_service"] = False
@@ -1105,7 +1107,8 @@ capability → agent_type 映射：
             try:
                 router = get_router(verbose=False)
                 channels["model_router"] = True  # import 成功即视为可用
-            except Exception:
+            except Exception as e:
+                log_warn(f"Model router health check failed: {e}", self.verbose)
                 channels["model_router"] = False
         else:
             channels["model_router"] = False
@@ -1247,8 +1250,8 @@ capability → agent_type 映射：
                 try:
                     client.disconnect()
                     log_info(f"断开 MCP: {name}", self.verbose)
-                except Exception:
-                    pass
+                except Exception as e:
+                    log_warn(f"MCP disconnect failed for {name}: {e}", self.verbose)
             self.tool_registry._mcp_clients.clear()
 
 

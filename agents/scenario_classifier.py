@@ -168,7 +168,7 @@ class ScenarioClassifier:
     3. 是否需要多步骤推理？
     """
 
-    def __init__(self, model_router=None):
+    def __init__(self, model_router: Any = None) -> None:
         self.model_router = model_router
 
     def classify(self, user_input: str, context: Dict = None) -> ClassificationResult:
@@ -362,7 +362,7 @@ class DynamicModelRouter:
         # → "strong"
     """
 
-    def __init__(self, model_router=None, classifier: ScenarioClassifier = None):
+    def __init__(self, model_router: Any = None, classifier: ScenarioClassifier = None) -> None:
         self.model_router = model_router
         self.classifier = classifier or ScenarioClassifier()
         self._routing_log: List[Dict] = []
@@ -472,7 +472,7 @@ class DynamicModelRouter:
 _global_classifier: Optional[ScenarioClassifier] = None
 
 
-def get_classifier(model_router=None) -> ScenarioClassifier:
+def get_classifier(model_router: Any = None) -> ScenarioClassifier:
     """获取全局场景分类器"""
     global _global_classifier
     if _global_classifier is None:

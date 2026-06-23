@@ -7,7 +7,7 @@
 import os
 from typing import Optional, Dict, Any
 from config import (
-    ERNIEBOT_ACCESS_TOKEN, DEFAULT_ACCESS_TOKEN,
+    ERNIEBOT_ACCESS_TOKEN,
     MODEL_LITE, MODEL_STRONG, MODEL_ROUTING
 )
 
@@ -26,7 +26,7 @@ class ModelRouter:
             lite_token: ernie-lite 的 access_token（默认用 config 中的）
             strong_token: ernie-3.5/4.0 的 access_token（默认用 config 中的）
         """
-        self.lite_token = lite_token or ERNIEBOT_ACCESS_TOKEN or DEFAULT_ACCESS_TOKEN
+        self.lite_token = lite_token or ERNIEBOT_ACCESS_TOKEN
         self.strong_token = strong_token or self.lite_token  # 无强模型token时降级到lite
 
         # 模型配置

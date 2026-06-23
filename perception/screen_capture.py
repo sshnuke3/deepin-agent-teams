@@ -80,10 +80,12 @@ def capture_active_window() -> str:
             window_id = subprocess.run(
                 ["swaymsg", "-t", "get_focused_window"],
                 capture_output=True, text=True, check=True
-            ).stdout
+            ).stdout.strip()
             # grim 截取指定窗口
-            cmd = ["grim", "-w", "$(swaymsg -t get_focused_window | jq -r '.id')", output_path]
-            subprocess.run(cmd, shell=True, check=True)
+            subprocess.run(
+                ["grim", "-w", window_id, output_path],
+                check=True, capture_output=True
+            )
         except subprocess.CalledProcessError:
             # 降级：截取全屏
             return capture_screen(output_path)

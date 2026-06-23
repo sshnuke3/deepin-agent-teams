@@ -124,7 +124,7 @@ class PromptLoader:
     5. A/B 测试（多版本按权重选择）
     """
 
-    def __init__(self, prompts_dir: str = None):
+    def __init__(self, prompts_dir: str = None) -> None:
         """
         Args:
             prompts_dir: prompts 目录路径，默认 PROJECT_ROOT/prompts
