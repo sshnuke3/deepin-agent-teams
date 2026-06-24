@@ -1,21 +1,21 @@
 #!/usr/bin/env python3
 """
-agents/scenario_classifier.py — 场景识别器
+agents/scenario_classifier.py - 场景识别器
 
-核心设计原则（来自 W6 Agent 评估课程）：
+核心设计原则(来自 W6 Agent 评估课程):
 1. 三道筛子判断是否适合 Agent 化
-2. 不适合 Agent 的场景 → 直接走 LLM 对话，不进状态机
-3. 场景复杂度决定模型选择（简单→lite，复杂→strong）
+2. 不适合 Agent 的场景 → 直接走 LLM 对话,不进状态机
+3. 场景复杂度决定模型选择(简单→lite,复杂→strong)
 
-三道筛子：
-  筛子 1：输入是否有模糊性？（非结构化→结构化）
-  筛子 2：是否需要跨系统协调？（跨系统胶水）
-  筛子 3：是否需要多步骤推理？（长链路任务）
+三道筛子:
+  筛子 1:输入是否有模糊性?(非结构化→结构化)
+  筛子 2:是否需要跨系统协调?(跨系统胶水)
+  筛子 3:是否需要多步骤推理?(长链路任务)
 
 三道都不过 → 直接 LLM 对话
 任一道过了 → 进入 Agent 状态机
 
-使用方式：
+使用方式:
     classifier = ScenarioClassifier()
     result = classifier.classify("帮我分析项目代码结构")
     print(result.scenario_type)    # "code"
@@ -49,15 +49,15 @@ class ScenarioType(Enum):
     SEARCH = "search"                # 信息检索
     FILE_OP = "file_op"             # 文件操作
     CHAT = "chat"                    # 闲聊/简单问答
-    CONTENT = "content"              # 内容创作（报告/文档）
+    CONTENT = "content"              # 内容创作(报告/文档)
     UNKNOWN = "unknown"
 
 
 class Complexity(Enum):
     """任务复杂度"""
-    SIMPLE = "simple"      # 1 步可完成，lite 模型
-    MODERATE = "moderate"  # 2-3 步，lite 或 strong
-    COMPLEX = "complex"    # 4+ 步，strong 模型
+    SIMPLE = "simple"      # 1 步可完成,lite 模型
+    MODERATE = "moderate"  # 2-3 步,lite 或 strong
+    COMPLEX = "complex"    # 4+ 步,strong 模型
 
 
 # ============================================================
@@ -94,37 +94,50 @@ class ClassificationResult:
 # 关键词→场景映射
 SCENARIO_KEYWORDS: Dict[ScenarioType, Dict] = {
     ScenarioType.EMAIL: {
-        "keywords": ["发邮件", "写邮件", "发给", "email", "邮件", "告知", "通知", "写信"],
+        "keywords": ["发邮件", "写邮件", "发给", "email", "邮件", "告知", "通知", "写信",
+                     "send email", "write email", "draft", "compose", "mail to", "send to"],
         "weight": 0.9,
     },
     ScenarioType.SYSTEM_FIX: {
         "keywords": ["连不上", "没声音", "坏了", "不行", "错误", "故障", "修复",
-                     "can't", "not working", "error", "broken", "fix", "系统", "诊断"],
+                     "can't", "not working", "error", "broken", "fix", "系统", "诊断",
+                     "crash", "fail", "bug", "issue", "problem", "troubleshoot",
+                     "debug", "repair", "diagnose", "service", "daemon"],
         "weight": 0.8,
     },
     ScenarioType.CODE: {
         "keywords": ["代码", "报错", "debug", "怎么写", "帮我改", "分析代码", "代码结构",
                      "error", "exception", "bug", "function", "函数", "类", "import",
-                     "git", "commit", "分支", "merge"],
+                     "git", "commit", "分支", "merge",
+                     "code", "analyze", "refactor", "implement", "class", "method",
+                     "variable", "loop", "api", "endpoint", "database", "query",
+                     "python", "java", "javascript", "typescript", "rust", "golang",
+                     "compile", "build", "test", "run", "script", "algorithm"],
         "weight": 0.85,
     },
     ScenarioType.SEARCH: {
         "keywords": ["搜", "找", "查", "搜索", "search", "find", "look up",
-                     "文献", "资料", "论文"],
+                     "文献", "资料", "论文",
+                     "research", "investigate", "lookup", "google", "browse"],
         "weight": 0.7,
     },
     ScenarioType.FILE_OP: {
         "keywords": ["文件", "目录", "读取", "写入", "创建", "删除", "移动", "复制",
-                     "file", "directory", "read", "write"],
+                     "file", "directory", "read", "write", "create", "delete",
+                     "move", "copy", "rename", "folder", "path", "open", "save"],
         "weight": 0.6,
     },
     ScenarioType.CONTENT: {
         "keywords": ["报告", "文档", "总结", "摘要", "写一篇", "生成", "撰写",
-                     "report", "document", "summary"],
+                     "report", "document", "summary", "write", "generate",
+                     "draft", "article", "blog", "post", "presentation", "outline",
+                     "summarize", "review", "translate"],
         "weight": 0.75,
     },
     ScenarioType.CHAT: {
-        "keywords": ["你好", "谢谢", "帮个忙", "请问", "hi", "hello", "hey"],
+        "keywords": ["你好", "谢谢", "帮个忙", "请问", "hi", "hello", "hey",
+                     "thanks", "thank you", "please", "help", "what is",
+                     "how to", "can you", "tell me", "explain"],
         "weight": 0.3,
     },
 }
@@ -135,13 +148,17 @@ COMPLEXITY_SIGNALS = {
         "patterns": [
             r"^(你好|谢谢|hi|hello|hey)",
             r"^(帮我|请).{0,10}(查|找|搜|看)",
+            r"^(help me|can you|please).{0,15}(check|find|look|search)",
         ],
-        "max_length": 20,  # 短请求通常是简单的
+        "max_length": 20,
     },
     "moderate": {
         "patterns": [
             r"(分析|检查|诊断).{0,20}(代码|系统|文件)",
             r"(写|生成|撰写).{0,10}(邮件|报告|文档)",
+            r"(analyze|check|diagnose).{0,20}(code|system|file)",
+            r"(write|generate|create).{0,15}(email|report|document)",
+            r"(explain|describe|tell me about)",
         ],
         "min_length": 15,
         "max_length": 100,
@@ -152,6 +169,10 @@ COMPLEXITY_SIGNALS = {
             r"(重构|优化|改进|升级).{0,20}(架构|系统|代码)",
             r"(对比|比较|选型).{0,15}(方案|技术|框架)",
             r"多.{0,5}(步骤|阶段|模块)",
+            r"(comprehensive|full|detailed).{0,15}(analysis|review|audit)",
+            r"(refactor|optimize|improve|upgrade).{0,20}(architecture|system|code)",
+            r"(compare|contrast|evaluate).{0,15}(options|approaches|frameworks)",
+            r"(multi.?step|end.?to.?end|full.?stack)",
         ],
         "min_length": 30,
     },
@@ -162,10 +183,10 @@ class ScenarioClassifier:
     """
     场景识别器
 
-    三道筛子判断是否适合 Agent 化：
-    1. 输入是否有模糊性？
-    2. 是否需要跨系统协调？
-    3. 是否需要多步骤推理？
+    三道筛子判断是否适合 Agent 化:
+    1. 输入是否有模糊性?
+    2. 是否需要跨系统协调?
+    3. 是否需要多步骤推理?
     """
 
     def __init__(self, model_router: Any = None) -> None:
@@ -177,7 +198,7 @@ class ScenarioClassifier:
 
         Args:
             user_input: 用户输入文本
-            context: 额外上下文（window_title, active_app 等）
+            context: 额外上下文(window_title, active_app 等)
 
         Returns:
             ClassificationResult
@@ -233,7 +254,7 @@ class ScenarioClassifier:
                     score += config["weight"]
                     matched += 1
             if matched > 0:
-                # 多个关键词命中时取平均，再乘以基础权重
+                # 多个关键词命中时取平均,再乘以基础权重
                 scores[scenario] = min(score / matched, 1.0)
 
         if not scores:
@@ -248,41 +269,40 @@ class ScenarioClassifier:
         """
         三道筛子
 
-        筛子 1：输入是否有模糊性？（非结构化→结构化）
-        筛子 2：是否需要跨系统协调？（跨系统胶水）
-        筛子 3：是否需要多步骤推理？（长链路任务）
+        筛子 1:输入是否有模糊性?(非结构化→结构化)
+        筛子 2:是否需要跨系统协调?(跨系统胶水)
+        筛子 3:是否需要多步骤推理?(长链路任务)
         """
         context = context or {}
         results = {}
 
         # 筛子 1：模糊性检测
-        # 特征：输入有多种理解方式，需要澄清或推理
         ambiguity_signals = [
-            len(text) > 30,                      # 较长的描述
-            "帮我" in text,                       # 模糊委托
-            any(c in text for c in ["?", "？"]),  # 疑问句
+            len(text) > 30,
+            "帮我" in text or "help me" in text_lower,
+            any(c in text for c in ["?", "?"]),
             scenario in (ScenarioType.CODE, ScenarioType.SYSTEM_FIX, ScenarioType.CONTENT),
         ]
         results["ambiguity"] = sum(ambiguity_signals) >= 2
 
         # 筛子 2：跨系统需求
-        # 特征：需要多个工具/系统配合
         cross_system_signals = [
-            scenario == ScenarioType.CODE,         # 代码分析需要读文件+执行+分析
-            scenario == ScenarioType.SYSTEM_FIX,   # 系统诊断需要查日志+执行命令+分析
-            scenario == ScenarioType.EMAIL,        # 邮件需要收集信息+撰写+发送
-            "和" in text and "然后" in text,       # 多步骤描述
-            "同时" in text,                        # 并行需求
+            scenario == ScenarioType.CODE,
+            scenario == ScenarioType.SYSTEM_FIX,
+            scenario == ScenarioType.EMAIL,
+            ("和" in text and "然后" in text) or ("and" in text_lower and "then" in text_lower),
+            "同时" in text or "simultaneously" in text_lower or "at the same time" in text_lower,
         ]
         results["cross_system"] = sum(cross_system_signals) >= 1
 
         # 筛子 3：多步骤推理
-        # 特征：任务需要分解为多个子步骤
-        step_words = [kw for kw in ["然后", "接着", "最后", "首先"] if kw in text]
+        zh_step_words = [kw for kw in ["然后", "接着", "最后", "首先"] if kw in text]
+        en_step_words = [kw for kw in ["then", "next", "finally", "first"] if kw in text_lower]
         multistep_signals = [
-            len(text) > 50,                        # 长描述
-            any(kw in text for kw in ["全面", "完整", "详细", "深入"]),  # 综合性需求
-            len(step_words) >= 2,                   # 多个步骤词
+            len(text) > 50,
+            any(kw in text for kw in ["全面", "完整", "详细", "深入"]),
+            any(kw in text_lower for kw in ["comprehensive", "full", "detailed", "thorough", "in-depth"]),
+            len(zh_step_words) >= 2 or len(en_step_words) >= 2,
             scenario in (ScenarioType.CODE, ScenarioType.CONTENT),
             context.get("complexity_hint") == "high",
         ]
@@ -292,7 +312,7 @@ class ScenarioClassifier:
 
     def _assess_complexity(self, text: str, scenario: ScenarioType) -> Complexity:
         """评估任务复杂度"""
-        # 模式匹配（检查复杂→中等→简单，返回最高的匹配）
+        # 模式匹配(检查复杂→中等→简单,返回最高的匹配)
         for level in ["complex", "moderate", "simple"]:
             config = COMPLEXITY_SIGNALS.get(level, {})
             for pattern in config.get("patterns", []):
@@ -323,7 +343,7 @@ class ScenarioClassifier:
         """
         快速判断是否适合 Agent 化
 
-        比 classify() 更轻量，只返回 bool。
+        比 classify() 更轻量,只返回 bool。
         """
         result = self.classify(user_input, context)
         return result.agent_suitable
@@ -347,12 +367,12 @@ class DynamicModelRouter:
     """
     动态模型路由器
 
-    根据任务复杂度自动选择模型：
-    - 简单任务（1步计划）→ ernie-lite
-    - 复杂任务（3+步计划）→ ernie-3.5
+    根据任务复杂度自动选择模型:
+    - 简单任务(1步计划)→ ernie-lite
+    - 复杂任务(3+步计划)→ ernie-3.5
     - 路由决策写入 trace
 
-    使用方式：
+    使用方式:
         router = DynamicModelRouter(model_router=router)
         model = router.route("分析项目代码结构")
         # → "strong"
@@ -397,7 +417,7 @@ class DynamicModelRouter:
         if steps_count <= 1:
             model = "lite"
         elif steps_count <= 3:
-            model = "lite"  # 中等复杂度也用 lite，省成本
+            model = "lite"  # 中等复杂度也用 lite,省成本
         else:
             model = "strong"  # 4+ 步用 strong
 
@@ -406,7 +426,7 @@ class DynamicModelRouter:
 
     def route_from_task_type(self, task_type: str) -> str:
         """
-        根据任务类型路由（兼容现有 MODEL_ROUTING 表）
+        根据任务类型路由(兼容现有 MODEL_ROUTING 表)
 
         Args:
             task_type: 任务类型
@@ -419,7 +439,7 @@ class DynamicModelRouter:
             level = MODEL_ROUTING.get(task_type, "lite")
             model = "strong" if level == "strong" else "lite"
         except ImportError:
-            # 降级：基于场景类型推断
+            # 降级:基于场景类型推断
             scenario_map = {
                 "code": "strong",
                 "diagnosis": "strong",
@@ -490,7 +510,7 @@ def _test():
 
     # Test 1: 邮件场景
     print("Test 1: 邮件场景")
-    r = classifier.classify("帮我写一封邮件给张三，通知他明天开会")
+    r = classifier.classify("帮我写一封邮件给张三,通知他明天开会")
     assert r.scenario_type == ScenarioType.EMAIL
     assert r.agent_suitable == True
     print(f"  类型: {r.scenario_type.value}, 适合Agent: {r.agent_suitable}, 复杂度: {r.complexity.value}")
@@ -498,7 +518,7 @@ def _test():
 
     # Test 2: 代码场景
     print("Test 2: 代码场景")
-    r = classifier.classify("帮我分析这个项目的代码结构，找出潜在的 bug")
+    r = classifier.classify("帮我分析这个项目的代码结构,找出潜在的 bug")
     assert r.scenario_type == ScenarioType.CODE
     assert r.agent_suitable == True
     assert r.recommended_model == "strong"
@@ -507,7 +527,7 @@ def _test():
 
     # Test 3: 系统诊断场景
     print("Test 3: 系统诊断场景")
-    r = classifier.classify("我的系统连不上网了，帮我诊断一下")
+    r = classifier.classify("我的系统连不上网了,帮我诊断一下")
     assert r.scenario_type == ScenarioType.SYSTEM_FIX
     assert r.agent_suitable == True
     print(f"  类型: {r.scenario_type.value}, 适合Agent: {r.agent_suitable}")
@@ -530,7 +550,7 @@ def _test():
 
     # Test 6: 复杂任务
     print("Test 6: 复杂任务")
-    r = classifier.classify("请全面分析这个项目的代码架构，评估性能瓶颈，然后给出详细的优化方案和实施步骤")
+    r = classifier.classify("请全面分析这个项目的代码架构,评估性能瓶颈,然后给出详细的优化方案和实施步骤")
     assert r.complexity == Complexity.COMPLEX
     assert r.recommended_model == "strong"
     print(f"  复杂度: {r.complexity.value}, 模型: {r.recommended_model}")
@@ -546,7 +566,7 @@ def _test():
 
     # Test 8: 三道筛子验证
     print("Test 8: 三道筛子")
-    r = classifier.classify("帮我全面分析项目代码，然后生成详细的优化报告")
+    r = classifier.classify("帮我全面分析项目代码,然后生成详细的优化报告")
     assert r.sieve_results.get("ambiguity") == True  # 有模糊性
     assert r.sieve_results.get("multistep") == True  # 多步骤
     print(f"  筛子: {r.sieve_results}")
@@ -604,7 +624,7 @@ def _test():
 
     # Test 15: 多步骤描述
     print("Test 15: 多步骤描述")
-    r = classifier.classify("首先读取配置文件，然后修改数据库连接参数，最后重启服务")
+    r = classifier.classify("首先读取配置文件,然后修改数据库连接参数,最后重启服务")
     assert r.sieve_results.get("multistep") == True
     print(f"  筛子: {r.sieve_results}")
     print("  ✅ PASS\n")
