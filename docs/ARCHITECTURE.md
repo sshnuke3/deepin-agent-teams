@@ -1,7 +1,7 @@
 # deepin Agent Teams — 架构文档
 
 > PaddlePaddle 黑客马拉松第10期 · 统信 deepin Agent Teams 赛题  
-> 最后更新：2026-06-23
+> 最后更新：2026-06-25
 
 ---
 
@@ -554,6 +554,13 @@ model = router.route_from_plan(steps_count=5)        # → "strong"
 3. **多步骤筛**：是否需要分解为多个子步骤？
 
 三道都不过 → 直接 LLM 对话，不进状态机。
+
+**中英文双语支持**：关键词、筛子信号、复杂度模式均支持中英文输入。例如：
+- `analyze this code` → CODE 场景
+- `help me write an email` → EMAIL 场景
+- `comprehensive system diagnosis` → SYSTEM_FIX + complex
+
+**主动建议确认**：系统主动推送建议后，用户可用中/英文确认（`yes`/`ok`/`好的`/`确认` 等）直接触发对应场景，无需重新分类。
 
 ---
 

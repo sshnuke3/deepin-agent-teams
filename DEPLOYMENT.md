@@ -15,6 +15,24 @@
 | 磁盘空间 | ≥ 500MB（含依赖和数据） |
 | 网络 | 需要访问百度 AI Studio API |
 
+### deepin 特别说明
+
+deepin 25 使用自定义 Qt 平台插件，GUI 启动前需设置环境变量：
+
+```bash
+export QT_QPA_PLATFORM=xcb
+```
+
+如需中文输入法支持，还需设置：
+
+```bash
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+export GTK_IM_MODULE=fcitx
+```
+
+建议写入 `~/.bashrc` 永久生效。
+
 ---
 
 ## 二、快速安装
@@ -207,7 +225,30 @@ deepin-agent-teams/
 - 检查 PyQt5 是否安装成功：`python -c "from PyQt5.QtWidgets import QApplication; print('OK')"`
 - 查看终端输出是否有报错
 
-### Q3: 剪贴板感知不工作
+### Q3: deepin 上报 `Could not find the Qt platform plugin "dxcb"`
+
+deepin 使用自定义 Qt 平台插件，需要用 xcb 替代：
+
+```bash
+export QT_QPA_PLATFORM=xcb
+python main.py --gui
+```
+
+### Q4: 中文输入法无法输入
+
+确保输入法环境变量正确设置：
+
+```bash
+export QT_QPA_PLATFORM=xcb
+export QT_IM_MODULE=fcitx
+export XMODIFIERS=@im=fcitx
+export GTK_IM_MODULE=fcitx
+python main.py --gui
+```
+
+> 注意：对话窗口使用普通窗口标志（非 FramelessWindowHint），以保证输入法兼容。
+
+### Q5: 剪贴板感知不工作
 
 需要 X11 相关依赖：
 
@@ -217,7 +258,7 @@ pip install python-xlib
 sudo apt install xclip
 ```
 
-### Q4: 系统诊断场景报错
+### Q6: 系统诊断场景报错
 
 需要 `systemctl` 权限，部分操作需要 `sudo`：
 
@@ -226,7 +267,7 @@ sudo apt install xclip
 sudo usermod -aG sudo $USER
 ```
 
-### Q5: 模型调用超时
+### Q7: 模型调用超时
 
 默认超时 30 秒，可在 `config.py` 中调整。如网络不稳定，建议使用国内镜像或 VPN。
 

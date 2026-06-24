@@ -1,7 +1,7 @@
 # 赛题完成度自查清单
 
 > deepin-agent-teams · 第十期飞桨黑客松 · 进阶任务 #27
-> **自查时间**：2026-05-22
+> **自查时间**：2026-06-25
 > **状态**：✅ 全部完成
 
 ---
@@ -138,8 +138,13 @@
 | **Trace 可追溯** | ✅ | data/traces/ JSONL |
 | **双文心模型路由** | ✅ | ernie-lite(轻量) + ernie-3.5(复杂) |
 | 四大场景完整演示 | ✅ | scenarios/ 全部完成 |
-| GUI交互流畅 | ✅ | main.py --gui（悬浮球+托盘） |
-| 部署说明可复现 | ✅ | deepin25_deploy.sh |
+| GUI交互流畅 | ✅ | main.py --gui（悬浮球+托盘+智能路由） |
+| 中英文双语支持 | ✅ | ScenarioClassifier 中英文关键词+筛子+复杂度 |
+| 英文确认回复 | ✅ | 主动建议后 yes/ok/sure 等英文确认触发 |
+| 系统监控修复 | ✅ | 服务状态字典格式，正确触发告警 |
+| 剪贴板写入 | ✅ | set_clipboard_text（xclip/wl-copy） |
+| deepin 输入法兼容 | ✅ | 去掉 FramelessWindowHint，QT_QPA_PLATFORM=xcb |
+| 部署说明可复现 | ✅ | DEPLOYMENT.md（含 deepin 特别说明） |
 | 代码结构清晰 | ✅ | 模块化分层 |
 
 ---
@@ -180,4 +185,4 @@
 
 ---
 
-**最终提交时间**：2026-05-22
+**最终提交时间**：2026-06-25
