@@ -300,7 +300,11 @@ def get_system_summary() -> Dict:
     # 关键服务状态
     for svc in ["cups", "NetworkManager", "bluetooth", "ssh"]:
         status = check_service(svc)
-        summary["services"][svc] = status.active
+        summary["services"][svc] = {
+            "status": "active" if status.active else "inactive",
+            "description": status.description,
+            "name": status.name,
+        }
 
     # CPU 使用率
     try:
