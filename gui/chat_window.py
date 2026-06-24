@@ -212,6 +212,9 @@ class ChatWindow(QMainWindow):
         self._init_ui()
         self._apply_style()
 
+        # 主动建议上下文（用于确认匹配）
+        self._last_suggestion_type = None  # "diagnose" / "translate" / "analyze_code" 等
+
     def _init_window(self):
         """窗口属性"""
         self.setWindowTitle("deepin Agent Teams")
@@ -436,7 +439,24 @@ class ChatWindow(QMainWindow):
         # 自动识别场景
         scenario_type = "unknown"
         scenario_key = None
-        if self.classifier:
+
+        # 先检查是否是对上次主动建议的确认
+        if self._last_suggestion_type:
+            confirm = self._is_confirmation(text)
+            if confirm:
+                # 确认 → 直接用建议类型映射到 scenario_key
+                _confirm_map = {
+                    "diagnose": "doctor", "translate": "literature",
+                    "analyze_code": "code", "summarize": "literature",
+                }
+                scenario_key = _confirm_map.get(confirm, confirm)
+                scenario_type = confirm
+                self._last_suggestion_type = None
+            else:
+                self._last_suggestion_type = None
+
+        # 非确认场景，走正常分类
+        if not scenario_key and self.classifier:
             try:
                 result = self.classifier.classify(text)
                 scenario_type = result.scenario_type.value
@@ -500,6 +520,23 @@ class ChatWindow(QMainWindow):
 
     # ---- 感知主动推荐 ----
 
+    # 建议文本中的关键词 → 建议类型映射
+    _SUGGESTION_TYPE_MAP = {
+        "诊断": "diagnose", "diagnose": "diagnose",
+        "翻译": "translate", "translate": "translate",
+        "代码分析": "analyze_code", "analyze": "analyze_code", "code analysis": "analyze_code",
+        "总结": "summarize", "summarize": "summarize", "summary": "summarize",
+    }
+
+    # 确认词（中英文）
+    _CONFIRM_WORDS = [
+        "是", "好", "可以", "确认", "行", "嗯", "对", "好的", "是的", "没问题",
+        "yes", "y", "ok", "sure", "yeah", "yep", "do it", "go ahead",
+        "please", "sure thing", "of course", "affirmative",
+        "diagnose", "diagnose it", "do that", "let's go", "confirm",
+        "do", "好的诊断", "诊断一下", "帮我诊断",
+    ]
+
     def show_proactive_suggestion(self, text: str):
         """显示感知层推送的主动建议"""
         if not self.isVisible():
@@ -507,10 +544,34 @@ class ChatWindow(QMainWindow):
             self.raise_()
             self.activateWindow()
 
+        # 记录建议类型，用于后续确认匹配
+        self._last_suggestion_type = None
+        text_lower = text.lower()
+        for keyword, sug_type in self._SUGGESTION_TYPE_MAP.items():
+            if keyword in text_lower:
+                self._last_suggestion_type = sug_type
+                break
+
         self._add_perception_message(text)
         self.status_label.setText("🔍 感知触发")
 
         QTimer.singleShot(3000, lambda: self.status_label.setText("就绪"))
+
+    def _is_confirmation(self, text: str) -> str:
+        """
+        判断用户输入是否是对上次建议的确认
+        Returns: 确认的建议类型，或空字符串
+        """
+        if not self._last_suggestion_type:
+            return ""
+        text_lower = text.lower().strip()
+        for word in self._CONFIRM_WORDS:
+            if text_lower == word or text_lower.startswith(word + " ") or text_lower.endswith(" " + word):
+                return self._last_suggestion_type
+        # 英文短句匹配："yes please" / "yes do it" 等
+        if text_lower.startswith(("yes", "yeah", "yep", "ok", "sure", "do it", "go ahead")):
+            return self._last_suggestion_type
+        return ""
 
     def _add_perception_message(self, text):
         """添加感知推荐消息"""
