@@ -215,7 +215,9 @@ class ChatWindow(QMainWindow):
     def _init_window(self):
         """窗口属性"""
         self.setWindowTitle("deepin Agent Teams")
-        self.setWindowFlags(Qt.FramelessWindowHint | Qt.WindowStaysOnTopHint)
+        # 普通窗口标志，保证输入法兼容
+        # 外观通过 stylesheet + 圆角 QFrame 实现
+        self.setWindowFlags(Qt.WindowStaysOnTopHint)
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(520, 680)
 
