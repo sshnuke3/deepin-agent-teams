@@ -168,10 +168,13 @@ class ChatInputBox(QTextEdit):
     def focusInEvent(self, event):
         """获焦时显式激活输入法"""
         super().focusInEvent(event)
-        # FramelessWindowHint 下 fcitx 可能检测不到焦点，手动激活
-        im = QApplication.inputMethod()
-        if im:
-            im.setFocusObject(self)
+        # FramelessWindowHint 下 fcitx 可能检测不到焦点，手动触发输入法重置
+        try:
+            im = QApplication.inputMethod()
+            if im:
+                im.reset()
+        except Exception:
+            pass
 
     def keyPressEvent(self, event: QKeyEvent):
         # 输入法正在组合中文时，不拦截按键
