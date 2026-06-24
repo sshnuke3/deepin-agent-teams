@@ -141,12 +141,23 @@ class ChatInputBox(QTextEdit):
     """自定义输入框，支持 Enter 发送，兼容中文输入法"""
     submit_pressed = pyqtSignal()
 
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self._is_composing = False
+
+    def inputMethodEvent(self, event):
+        """跟踪输入法组合状态"""
+        # 有预编辑文本 = 正在组合
+        self._is_composing = len(event.preeditString()) > 0
+        super().inputMethodEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent):
         # 输入法正在组合中文时，不拦截按键，让输入法处理
-        if self.isInputMethodComposing():
+        if self._is_composing:
             super().keyPressEvent(event)
             return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
+            self._is_composing = False  # 重置状态
             self.submit_pressed.emit()
         else:
             super().keyPressEvent(event)
