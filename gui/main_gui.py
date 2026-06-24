@@ -15,6 +15,7 @@ from PyQt5.QtCore import Qt
 
 from gui.floating_ball import FloatingBall
 from gui.chat_window import ChatWindow
+from agents.scenario_classifier import ScenarioClassifier
 from gui.tray_icon import TrayIcon
 from gui.perception_bridge import PerceptionBridge
 from gui.decision_engine import DecisionEngine
@@ -45,8 +46,9 @@ def main():
     scenarios = load_scenarios()
 
     # 创建组件
+    classifier = ScenarioClassifier()
     ball = FloatingBall()
-    chat_window = ChatWindow(scenarios)
+    chat_window = ChatWindow(scenarios, classifier=classifier)
     tray = TrayIcon()
 
     # ---- 信号连接 ----

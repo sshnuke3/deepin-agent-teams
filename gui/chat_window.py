@@ -1,6 +1,6 @@
 """
 deepin-agent-teams 对话窗口
-场景切换 + 对话流 + 消息输入
+单输入框 + 自动意图路由（无需手动切 tab）
 """
 import sys
 import traceback
@@ -17,11 +17,39 @@ from PyQt5.QtGui import QColor, QFont, QTextCursor, QKeyEvent
 from .styles import CHAT_WINDOW_STYLE, COLORS
 
 
+# 场景类型 → 显示名称映射
+SCENARIO_DISPLAY = {
+    "email": ("📧", "邮件助手"),
+    "system_fix": ("🩺", "系统诊断"),
+    "doctor": ("🩺", "系统诊断"),
+    "code": ("🔍", "代码分析"),
+    "literature": ("📚", "文献阅读"),
+    "search": ("🔍", "信息检索"),
+    "content": ("📝", "内容创作"),
+    "chat": ("💬", "通用对话"),
+    "file_op": ("📁", "文件操作"),
+    "unknown": ("💬", "通用对话"),
+}
+
+# 场景 ID 映射（ScenarioClassifier 的类型 → 本地 scenario key）
+SCENARIO_ID_MAP = {
+    "email": "email",
+    "system_fix": "doctor",
+    "code": "code",
+    "literature": "literature",
+    "search": "literature",
+    "content": "literature",
+    "file_op": "code",
+    "chat": None,
+    "unknown": None,
+}
+
+
 class AgentWorker(QThread):
     """后台 Agent 执行线程"""
-    finished = pyqtSignal(str)  # 成功：返回结果文本
-    error = pyqtSignal(str)     # 失败：返回错误信息
-    status_update = pyqtSignal(str)  # 状态更新
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+    status_update = pyqtSignal(str)
 
     def __init__(self, scenario, user_input):
         super().__init__()
@@ -32,7 +60,6 @@ class AgentWorker(QThread):
         try:
             self.status_update.emit("⏳ 正在思考...")
             result = self.scenario.run(self.user_input)
-            # 处理多轮对话：场景需要追问澄清
             if result.get("needs_clarification"):
                 question = result.get("clarification_question",
                              result.get("output", result.get("draft", "请补充信息")))
@@ -45,6 +72,36 @@ class AgentWorker(QThread):
                 self.error.emit(f"执行失败: {error_msg}")
         except Exception as e:
             self.error.emit(f"异常: {str(e)}\n{traceback.format_exc()}")
+
+
+class LLMWorker(QThread):
+    """通用 LLM 对话线程（闲聊/无场景时用）"""
+    finished = pyqtSignal(str)
+    error = pyqtSignal(str)
+
+    def __init__(self, model_router, user_input):
+        super().__init__()
+        self.model_router = model_router
+        self.user_input = user_input
+
+    def run(self):
+        try:
+            import erniebot
+            erniebot.api_type = 'aistudio'
+
+            import os
+            from dotenv import load_dotenv
+            load_dotenv()
+            token = os.getenv("ERNIEBOT_ACCESS_TOKEN", "")
+            erniebot.access_token = token
+
+            resp = erniebot.ChatCompletion.create(
+                model='ernie-lite',
+                messages=[{"role": "user", "content": self.user_input}],
+            )
+            self.finished.emit(resp.result)
+        except Exception as e:
+            self.error.emit(f"对话异常: {str(e)}")
 
 
 class MessageBubble(QFrame):
@@ -92,22 +149,24 @@ class ChatInputBox(QTextEdit):
 
 
 class ChatWindow(QMainWindow):
-    """对话窗口"""
+    """对话窗口 — 单输入框 + 自动意图路由"""
     closed = pyqtSignal()
 
-    SCENES = [
-        {"id": "email", "name": "📧 邮件助手", "color": COLORS["scene_email"]},
-        {"id": "doctor", "name": "🩺 系统诊断", "color": COLORS["scene_doctor"]},
-        {"id": "code", "name": "🔍 代码分析", "color": COLORS["scene_code"]},
-        {"id": "literature", "name": "📚 文献阅读", "color": COLORS["scene_literature"]},
-    ]
-
-    def __init__(self, scenarios: dict, parent=None):
+    def __init__(self, scenarios: dict, classifier=None, parent=None):
         super().__init__(parent)
         self.setObjectName("chatWindow")
-        self.scenarios = scenarios  # {"email": EmailAssistant, "doctor": SystemDoctor, ...}
-        self.current_scene = "email"
+        self.scenarios = scenarios
         self._worker = None
+
+        # 初始化场景分类器
+        if classifier is not None:
+            self.classifier = classifier
+        else:
+            try:
+                from agents.scenario_classifier import ScenarioClassifier
+                self.classifier = ScenarioClassifier()
+            except ImportError:
+                self.classifier = None
 
         self._init_window()
         self._init_ui()
@@ -120,7 +179,6 @@ class ChatWindow(QMainWindow):
         self.setAttribute(Qt.WA_TranslucentBackground)
         self.setFixedSize(520, 680)
 
-        # 居中显示
         screen = QApplication.primaryScreen().geometry()
         self.move(
             (screen.width() - self.width()) // 2,
@@ -129,7 +187,6 @@ class ChatWindow(QMainWindow):
 
     def _init_ui(self):
         """初始化界面"""
-        # 外层容器（带圆角 + 阴影）
         container = QFrame()
         container.setObjectName("chatWindow")
         container.setStyleSheet(f"""
@@ -154,9 +211,9 @@ class ChatWindow(QMainWindow):
         title_bar = self._create_title_bar()
         main_layout.addWidget(title_bar)
 
-        # ---- 场景选择栏 ----
-        scene_bar = self._create_scene_bar()
-        main_layout.addWidget(scene_bar)
+        # ---- 当前场景指示器 ----
+        self.scene_indicator = self._create_scene_indicator()
+        main_layout.addWidget(self.scene_indicator)
 
         # ---- 聊天消息区域 ----
         self.chat_area = self._create_chat_area()
@@ -179,19 +236,16 @@ class ChatWindow(QMainWindow):
         layout = QHBoxLayout(bar)
         layout.setContentsMargins(16, 0, 12, 0)
 
-        # 标题
         title = QLabel("🦞 deepin Agent Teams")
         title.setObjectName("titleLabel")
         layout.addWidget(title)
         layout.addStretch()
 
-        # 最小化按钮
         min_btn = QPushButton("−")
         min_btn.setObjectName("closeBtn")
         min_btn.clicked.connect(self.showMinimized)
         layout.addWidget(min_btn)
 
-        # 关闭按钮
         close_btn = QPushButton("×")
         close_btn.setObjectName("closeBtn")
         close_btn.clicked.connect(self.hide)
@@ -199,26 +253,24 @@ class ChatWindow(QMainWindow):
 
         return bar
 
-    def _create_scene_bar(self):
-        """场景选择栏"""
+    def _create_scene_indicator(self):
+        """场景指示器（自动识别后显示）"""
         bar = QFrame()
         bar.setObjectName("sceneBar")
         layout = QHBoxLayout(bar)
-        layout.setContentsMargins(8, 0, 8, 0)
-        layout.setSpacing(4)
+        layout.setContentsMargins(12, 6, 12, 6)
+        layout.setSpacing(8)
 
-        self.scene_buttons = {}
-        for scene in self.SCENES:
-            btn = QPushButton(scene["name"])
-            btn.setObjectName("sceneBtn")
-            btn.setProperty("scene_id", scene["id"])
-            btn.setCursor(Qt.PointingHandCursor)
-            btn.clicked.connect(lambda checked, sid=scene["id"]: self._switch_scene(sid))
-            layout.addWidget(btn)
-            self.scene_buttons[scene["id"]] = btn
+        self.scene_icon_label = QLabel("💬")
+        self.scene_icon_label.setStyleSheet("font-size: 16px; background: transparent;")
+        layout.addWidget(self.scene_icon_label)
 
-        # 高亮默认场景
-        self._highlight_scene("email")
+        self.scene_name_label = QLabel("输入需求，自动识别场景")
+        self.scene_name_label.setObjectName("statusLabel")
+        self.scene_name_label.setStyleSheet(
+            f"color: {COLORS['text_secondary']}; font-size: 13px; background: transparent;"
+        )
+        layout.addWidget(self.scene_name_label, 1)
 
         return bar
 
@@ -240,7 +292,15 @@ class ChatWindow(QMainWindow):
         scroll.setWidget(content)
 
         # 欢迎消息
-        self._add_agent_message("你好！我是 deepin Agent Teams 🦞\n\n请选择场景，然后输入你的需求：\n• 📧 邮件助手：自动撰写邮件\n• 🩺 系统诊断：排查系统问题\n• 🔍 代码分析：分析项目代码\n• 📚 文献阅读：提取文献要点")
+        self._add_agent_message(
+            "你好！我是 deepin Agent Teams 🦞\n\n"
+            "直接输入你的需求，我会自动识别场景：\n"
+            "• 📧 邮件：给张三发一封会议通知\n"
+            "• 🩺 诊断：打印机连不上了\n"
+            "• 🔍 代码：分析这个项目的代码结构\n"
+            "• 📚 文献：总结这篇论文的核心观点\n"
+            "• 💬 对话：你好，今天天气怎么样"
+        )
 
         return scroll
 
@@ -252,7 +312,6 @@ class ChatWindow(QMainWindow):
         layout.setContentsMargins(12, 8, 12, 8)
         layout.setSpacing(8)
 
-        # 输入框
         self.input_box = ChatInputBox()
         self.input_box.setObjectName("inputBox")
         self.input_box.setPlaceholderText("输入消息... (Enter 发送，Shift+Enter 换行)")
@@ -261,7 +320,6 @@ class ChatWindow(QMainWindow):
         self.input_box.submit_pressed.connect(self._on_send)
         layout.addWidget(self.input_box, 1)
 
-        # 发送按钮
         self.send_btn = QPushButton("发送")
         self.send_btn.setObjectName("sendBtn")
         self.send_btn.setCursor(Qt.PointingHandCursor)
@@ -282,38 +340,17 @@ class ChatWindow(QMainWindow):
         layout.addWidget(self.status_label)
         layout.addStretch()
 
-        self.scene_label = QLabel("📧 邮件助手")
-        self.scene_label.setObjectName("statusLabel")
-        layout.addWidget(self.scene_label)
-
         return bar
 
     def _apply_style(self):
         """应用样式"""
         self.setStyleSheet(CHAT_WINDOW_STYLE)
 
-    def _switch_scene(self, scene_id):
-        """切换场景"""
-        self.current_scene = scene_id
-        self._highlight_scene(scene_id)
-
-        scene_info = next(s for s in self.SCENES if s["id"] == scene_id)
-        self.scene_label.setText(scene_info["name"])
-
-        scene_hints = {
-            "email": "邮件助手已就绪，请描述邮件内容，如「给张三发一封项目进度汇报邮件」",
-            "doctor": "系统诊断已就绪，请描述问题，如「打印机连不上了」或「系统很卡」",
-            "code": "代码分析已就绪，请输入项目路径，如「分析 /home/user/project 的代码」",
-            "literature": "文献阅读已就绪，请描述研究问题，如「总结这篇论文的核心观点」",
-        }
-        self._add_agent_message(scene_hints.get(scene_id, "场景已切换"))
-
-    def _highlight_scene(self, scene_id):
-        """高亮当前场景按钮"""
-        for sid, btn in self.scene_buttons.items():
-            btn.setProperty("active", sid == scene_id)
-            btn.style().unpolish(btn)
-            btn.style().polish(btn)
+    def _update_scene_indicator(self, scenario_type: str):
+        """更新场景指示器"""
+        icon, name = SCENARIO_DISPLAY.get(scenario_type, ("💬", "通用对话"))
+        self.scene_icon_label.setText(icon)
+        self.scene_name_label.setText(f"已识别：{name}")
 
     def _add_user_message(self, text):
         """添加用户消息"""
@@ -342,35 +379,53 @@ class ChatWindow(QMainWindow):
         ))
 
     def _on_send(self):
-        """发送消息"""
+        """发送消息 — 自动识别场景并路由"""
         text = self.input_box.toPlainText().strip()
         if not text:
             return
 
         if self._worker and self._worker.isRunning():
-            return  # 上一个任务还在执行
+            return
 
         # 显示用户消息
         self._add_user_message(text)
         self.input_box.clear()
 
-        # 获取当前场景的 Agent
-        scenario = self.scenarios.get(self.current_scene)
-        if not scenario:
-            self._add_agent_message("❌ 当前场景不可用")
-            return
+        # 自动识别场景
+        scenario_type = "unknown"
+        scenario_key = None
+        if self.classifier:
+            try:
+                result = self.classifier.classify(text)
+                scenario_type = result.scenario_type.value
+                scenario_key = SCENARIO_ID_MAP.get(scenario_type)
+            except Exception as e:
+                print(f"[ChatWindow] classifier error: {e}")
+
+        # 更新场景指示器
+        self._update_scene_indicator(scenario_type)
 
         # 禁用输入
         self.send_btn.setEnabled(False)
         self.input_box.setEnabled(False)
         self.status_label.setText("⏳ Agent 正在工作...")
 
-        # 后台执行
-        self._worker = AgentWorker(scenario, text)
-        self._worker.finished.connect(self._on_agent_finished)
-        self._worker.error.connect(self._on_agent_error)
-        self._worker.status_update.connect(lambda msg: self.status_label.setText(msg))
-        self._worker.start()
+        # 路由到对应场景
+        scenario = self.scenarios.get(scenario_key) if scenario_key else None
+
+        if scenario:
+            # 有匹配场景 → 走场景 Agent
+            self._worker = AgentWorker(scenario, text)
+            self._worker.finished.connect(self._on_agent_finished)
+            self._worker.error.connect(self._on_agent_error)
+            self._worker.status_update.connect(lambda msg: self.status_label.setText(msg))
+            self._worker.start()
+        else:
+            # 无匹配场景 → 走通用 LLM 对话
+            self._worker = LLMWorker(None, text)
+            self._worker.finished.connect(self._on_agent_finished)
+            self._worker.error.connect(self._on_agent_error)
+            self._worker.start()
 
     def _on_agent_finished(self, result):
         """Agent 执行完成"""
@@ -404,27 +459,20 @@ class ChatWindow(QMainWindow):
     # ---- 感知主动推荐 ----
 
     def show_proactive_suggestion(self, text: str):
-        """
-        显示感知层推送的主动建议
-        自动弹出窗口 + 显示消息
-        """
-        # 如果窗口不可见，自动弹出
+        """显示感知层推送的主动建议"""
         if not self.isVisible():
             self.show()
             self.raise_()
             self.activateWindow()
 
-        # 显示建议消息（带感知标签）
         self._add_perception_message(text)
         self.status_label.setText("🔍 感知触发")
 
-        # 3 秒后恢复状态栏
         QTimer.singleShot(3000, lambda: self.status_label.setText("就绪"))
 
     def _add_perception_message(self, text):
-        """添加感知推荐消息（特殊样式，区别于普通 Agent 消息）"""
+        """添加感知推荐消息"""
         bubble = MessageBubble(text, is_user=False)
-        # 给感知消息加个边框标识
         for child in bubble.findChildren(QFrame):
             if child.objectName() == "agentMsgBubble":
                 child.setStyleSheet(child.styleSheet() + """
@@ -437,17 +485,13 @@ class ChatWindow(QMainWindow):
         self._scroll_to_bottom()
 
     def show_auto_result(self, text: str):
-        """
-        显示自动执行的结果
-        区别于主动建议：这是 agent 已经完成的操作结果
-        """
+        """显示自动执行的结果"""
         if not self.isVisible():
             self.show()
             self.raise_()
             self.activateWindow()
 
         bubble = MessageBubble(text, is_user=False)
-        # 自动执行结果用绿色左边框
         for child in bubble.findChildren(QFrame):
             if child.objectName() == "agentMsgBubble":
                 child.setStyleSheet(child.styleSheet() + """

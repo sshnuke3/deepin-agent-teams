@@ -100,7 +100,7 @@ class PerceptionBridge(QObject):
                 return
             self._last_window_title = title
             app_class = win.get("app_class", "") if isinstance(win, dict) else getattr(win, "app_class", "")
-            classification = get_window_classification(title)
+            classification = get_window_classification(title, app_class)
             self.window_changed.emit(title, classification)
             self._suggest_for_window(title, classification, app_class)
         except Exception as e:
