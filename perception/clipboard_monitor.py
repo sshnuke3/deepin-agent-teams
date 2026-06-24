@@ -181,6 +181,33 @@ class ClipboardMonitor:
         return info
 
 
+def set_clipboard_text(text: str) -> bool:
+    """快捷函数：写入剪贴板文本"""
+    try:
+        # X11: xclip
+        result = subprocess.run(
+            ["xclip", "-selection", "clipboard"],
+            input=text, text=True, timeout=2
+        )
+        if result.returncode == 0:
+            return True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    try:
+        # Wayland: wl-copy
+        result = subprocess.run(
+            ["wl-copy"],
+            input=text, text=True, timeout=2
+        )
+        if result.returncode == 0:
+            return True
+    except (subprocess.CalledProcessError, FileNotFoundError, subprocess.TimeoutExpired):
+        pass
+
+    return False
+
+
 def get_clipboard_text() -> str:
     """快捷函数：获取剪贴板文本"""
     monitor = ClipboardMonitor()

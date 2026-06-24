@@ -10,7 +10,8 @@ from PyQt5.QtWidgets import (
     QGraphicsDropShadowEffect, QSizePolicy, QSpacerItem
 )
 from PyQt5.QtCore import (
-    Qt, pyqtSignal, QThread, QTimer, QSize, QPropertyAnimation, QEasingCurve
+    Qt, pyqtSignal, QThread, QTimer, QSize, QPropertyAnimation, QEasingCurve,
+    QCoreApplication
 )
 from PyQt5.QtGui import QColor, QFont, QTextCursor, QKeyEvent
 
@@ -143,21 +144,34 @@ class ChatInputBox(QTextEdit):
 
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setAttribute(Qt.WA_InputMethodEnabled, True)
         self._is_composing = False
 
     def inputMethodEvent(self, event):
         """跟踪输入法组合状态"""
-        # 有预编辑文本 = 正在组合
-        self._is_composing = len(event.preeditString()) > 0
+        # 多种方式检测组合状态
+        has_preedit = len(event.preeditString()) > 0
+        has_commit = len(event.commitString()) > 0
+        # 有预编辑文本说明正在组合
+        if has_preedit:
+            self._is_composing = True
+        # 有提交文本说明组合完成
+        elif has_commit:
+            self._is_composing = False
         super().inputMethodEvent(event)
 
+    def focusOutEvent(self, event):
+        """失焦时重置组合状态"""
+        self._is_composing = False
+        super().focusOutEvent(event)
+
     def keyPressEvent(self, event: QKeyEvent):
-        # 输入法正在组合中文时，不拦截按键，让输入法处理
+        # 输入法正在组合中文时，不拦截按键
         if self._is_composing:
             super().keyPressEvent(event)
             return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
-            self._is_composing = False  # 重置状态
+            self._is_composing = False
             self.submit_pressed.emit()
         else:
             super().keyPressEvent(event)
