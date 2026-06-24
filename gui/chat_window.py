@@ -138,10 +138,14 @@ class MessageBubble(QFrame):
 
 
 class ChatInputBox(QTextEdit):
-    """自定义输入框，支持 Enter 发送"""
+    """自定义输入框，支持 Enter 发送，兼容中文输入法"""
     submit_pressed = pyqtSignal()
 
     def keyPressEvent(self, event: QKeyEvent):
+        # 输入法正在组合中文时，不拦截按键，让输入法处理
+        if self.isInputMethodComposing():
+            super().keyPressEvent(event)
+            return
         if event.key() in (Qt.Key_Return, Qt.Key_Enter) and not (event.modifiers() & Qt.ShiftModifier):
             self.submit_pressed.emit()
         else:
