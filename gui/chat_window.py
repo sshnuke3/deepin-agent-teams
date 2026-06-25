@@ -581,10 +581,10 @@ class ChatWindow(QMainWindow):
         把确认词转成带上下文的提示，让 Agent 知道要做什么
         """
         _prompt_map = {
-            "diagnose": "请诊断当前系统异常，给出原因和修复建议",
-            "translate": "请将剪贴板中的英文内容翻译成中文",
-            "analyze_code": "请分析当前打开的代码文件，给出结构和改进建议",
-            "summarize": "请总结剪贴板中的长文本要点",
+            "diagnose": "诊断系统异常，给出原因和修复建议",
+            "translate": "翻译剪贴板中的英文内容",
+            "analyze_code": "分析当前项目的代码结构",
+            "summarize": "总结剪贴板中的长文本要点",
         }
         return _prompt_map.get(scenario_type, "好的，请执行")
 
