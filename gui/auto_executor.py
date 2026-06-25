@@ -240,8 +240,10 @@ class AutoExecutor(QObject):
         try:
             from agents.model_router import ModelRouter
             router = ModelRouter()
-            response = router.generate(prompt, max_tokens=500)
-            return response.get("text", "") if isinstance(response, dict) else str(response)
+            response = router.chat(prompt, task_type="general")
+            if response.get("success"):
+                return response.get("result", "")
+            return None
         except Exception as e:
             logger.warning("_call_llm router failed: %s", e)
             # 降级：用 erniebot 直接调

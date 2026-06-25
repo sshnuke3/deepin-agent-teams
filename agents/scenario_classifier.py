@@ -275,6 +275,7 @@ class ScenarioClassifier:
         """
         context = context or {}
         results = {}
+        text_lower = text.lower()
 
         # 筛子 1：模糊性检测
         ambiguity_signals = [
