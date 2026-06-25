@@ -526,7 +526,7 @@ class ChatWindow(QMainWindow):
     _SUGGESTION_TYPE_MAP = {
         "诊断": "diagnose", "diagnose": "diagnose",
         "翻译": "translate", "translate": "translate",
-        "代码分析": "analyze_code", "analyze": "analyze_code", "code analysis": "analyze_code",
+        "代码": "analyze_code", "代码分析": "analyze_code", "analyze": "analyze_code", "code analysis": "analyze_code",
         "总结": "summarize", "summarize": "summarize", "summary": "summarize",
     }
 
