@@ -62,18 +62,32 @@ class CodeAnalysisAssistant:
             r"[/(~][\w./\-]+",           # 绝对路径或相对路径
             r"(?:在|到|路径|path)[:\s]*(.+?)(?:\s|$)",
             r"(?:分析|看看|审查)(.+?)(?:的代码|项目|代码|$)",
+            r"(?:分析代码文件)\s+(.+?)(?:\s|$)",  # 匹配 "分析代码文件 xxx.py"
         ]
         for pattern in path_patterns:
             match = re.search(pattern, user_input)
             if match:
                 candidate = match.group(0).strip().rstrip("的代码项目")
+                # 去掉前缀 "分析代码文件 "
+                candidate = re.sub(r'^分析代码文件\s*', '', candidate).strip()
+                if not candidate:
+                    continue
                 # 验证路径是否存在
                 expanded = os.path.expanduser(candidate)
                 if os.path.isdir(expanded):
                     intent["project_path"] = expanded
                     break
+                elif os.path.isfile(expanded):
+                    # 单文件分析：转为所在目录
+                    intent["project_path"] = os.path.dirname(expanded)
+                    intent["target_file"] = expanded
+                    break
                 elif os.path.isdir(candidate):
                     intent["project_path"] = candidate
+                    break
+                elif os.path.isfile(candidate):
+                    intent["project_path"] = os.path.dirname(candidate)
+                    intent["target_file"] = candidate
                     break
 
         # 未指定路径时，默认使用当前工作目录（项目自身）
@@ -149,6 +163,27 @@ class CodeAnalysisAssistant:
 
         return analyses
 
+    def analyze_single_file(self, file_path: str) -> Dict:
+        """分析单个代码文件"""
+        rel_path = os.path.basename(file_path)
+        size = os.path.getsize(file_path)
+        print(f"  📄 分析: {rel_path} ({size / 1024:.1f} KB)")
+        
+        content = ""
+        try:
+            with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                content = f.read(8000)
+        except Exception as e:
+            logger.warning("Failed to read file %s: %s", file_path, e)
+            content = "(无法读取)"
+        
+        analysis = self.creator.analyze_code(rel_path, content)
+        return {
+            "file": rel_path,
+            "size": size,
+            "analysis": analysis,
+        }
+
     def generate_report(self, project_path: str, context: Dict, analyses: List[Dict]) -> str:
         """生成项目分析报告"""
         project_name = os.path.basename(project_path.rstrip('/'))
@@ -217,9 +252,12 @@ class CodeAnalysisAssistant:
             return result
 
         result["project_path"] = project_path
+        target_file = intent.get("target_file")
         print(f"✅ 代码分析意图 (置信度: {intent['confidence']:.0%})")
         print(f"   动作: {intent['action']}")
         print(f"   项目: {project_path}")
+        if target_file:
+            print(f"   目标文件: {target_file}")
         if intent.get("language"):
             print(f"   语言: {intent['language']}")
 
@@ -242,7 +280,11 @@ class CodeAnalysisAssistant:
         # Step 3: 核心代码分析
         print("\n[Step 3] 分析核心代码文件...")
         try:
-            analyses = self.analyze_core_files(project_path)
+            if target_file and os.path.isfile(target_file):
+                # 分析单个文件
+                analyses = [self.analyze_single_file(target_file)]
+            else:
+                analyses = self.analyze_core_files(project_path)
             result["analyses"] = analyses
             result["steps"].append({"step": "code_analysis", "done": True})
             print(f"✅ 分析了 {len(analyses)} 个核心文件")

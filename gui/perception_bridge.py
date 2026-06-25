@@ -35,7 +35,7 @@ class PerceptionBridge(QObject):
     clipboard_changed = pyqtSignal(str)        # 剪贴板内容变化
     window_changed = pyqtSignal(str, str)      # (窗口标题, 应用分类)
     system_alert = pyqtSignal(str, str)        # (异常类型, 描述)
-    proactive_suggestion = pyqtSignal(str)     # 主动推荐文本（需要用户确认）
+    proactive_suggestion = pyqtSignal(str, str)  # (主动推荐文本, 窗口标题/上下文)
     auto_action = pyqtSignal(object)           # 自动执行结果（Decision对象）
 
     def __init__(self, decision_engine=None, feedback_tracker=None, parent=None):
@@ -133,7 +133,9 @@ class PerceptionBridge(QObject):
                 "diagnose": f"⚠️ 检测到服务异常（{decision.context.get('service', '')}），需要诊断吗？",
             }
             hint = hints.get(decision.action, f"🔍 {decision.reasoning}")
-            self.proactive_suggestion.emit(hint)
+            # 传递窗口标题作为上下文，用于确认时定位文件
+            context = getattr(decision, 'context', {}).get('window_title', self._last_window_title)
+            self.proactive_suggestion.emit(hint, context)
 
     # ---- 系统感知 ----
     def _check_system(self):

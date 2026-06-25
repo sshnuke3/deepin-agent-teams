@@ -87,7 +87,7 @@ def main():
     )
 
     # 需要用户确认 → 对话窗口弹出建议
-    bridge.proactive_suggestion.connect(chat_window.show_proactive_suggestion)
+    bridge.proactive_suggestion.connect(lambda hint, ctx: chat_window.show_proactive_suggestion(hint, ctx))
 
     # 自动执行 → AutoExecutor
     bridge.auto_action.connect(lambda decision: executor.execute_async(decision))
@@ -101,11 +101,11 @@ def main():
 
     # 需要用户确认（来自 executor）→ 对话窗口弹出
     executor.confirmation_needed.connect(
-        lambda hint, decision: chat_window.show_proactive_suggestion(hint)
+        lambda hint, decision: chat_window.show_proactive_suggestion(hint, "")
     )
 
     # 主动建议 → 托盘通知
-    def on_perception_notify(text):
+    def on_perception_notify(text, ctx):
         tray.show_message_notification("deepin Agent Teams", text[:50] + "...")
     bridge.proactive_suggestion.connect(on_perception_notify)
 

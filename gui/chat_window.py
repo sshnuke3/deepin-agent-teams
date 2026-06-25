@@ -214,6 +214,7 @@ class ChatWindow(QMainWindow):
 
         # 主动建议上下文（用于确认匹配）
         self._last_suggestion_type = None  # "diagnose" / "translate" / "analyze_code" 等
+        self._last_suggestion_context = ""  # 感知上下文（窗口标题等）
 
     def _init_window(self):
         """窗口属性"""
@@ -540,7 +541,7 @@ class ChatWindow(QMainWindow):
         "do", "好的诊断", "诊断一下", "帮我诊断", "分析一下", "帮我分析",
     ]
 
-    def show_proactive_suggestion(self, text: str):
+    def show_proactive_suggestion(self, text: str, context: str = ""):
         """显示感知层推送的主动建议"""
         if not self.isVisible():
             self.show()
@@ -549,6 +550,7 @@ class ChatWindow(QMainWindow):
 
         # 记录建议类型，用于后续确认匹配
         self._last_suggestion_type = None
+        self._last_suggestion_context = context  # 存储上下文（窗口标题等）
         text_lower = text.lower()
         for keyword, sug_type in self._SUGGESTION_TYPE_MAP.items():
             if keyword in text_lower:
@@ -580,6 +582,14 @@ class ChatWindow(QMainWindow):
         """
         把确认词转成带上下文的提示，让 Agent 知道要做什么
         """
+        ctx = getattr(self, '_last_suggestion_context', '')
+        
+        if scenario_type == "analyze_code" and ctx:
+            # 从窗口标题提取文件名（格式通常是 "filename.py - Editor"）
+            file_name = ctx.split(" - ")[0].strip() if " - " in ctx else ctx.strip()
+            if file_name:
+                return f"分析代码文件 {file_name} 的结构"
+        
         _prompt_map = {
             "diagnose": "诊断系统异常，给出原因和修复建议",
             "translate": "翻译剪贴板中的英文内容",
