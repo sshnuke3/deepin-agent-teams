@@ -330,6 +330,85 @@ class InformationCollector:
         return result
 
 
+    def collect_context_for_code(self, project_path: str) -> Dict:
+        """为代码分析收集项目上下文信息"""
+        import time
+        
+        context = {
+            "project_path": project_path,
+            "structure": {},
+            "files": [],
+            "languages": {},
+        }
+        
+        # 扫描项目结构
+        file_count = 0
+        total_size = 0
+        lang_count = {}
+        
+        code_extensions = {
+            ".py": "Python", ".js": "JavaScript", ".ts": "TypeScript",
+            ".java": "Java", ".c": "C", ".cpp": "C++", ".h": "C/C++ Header",
+            ".go": "Go", ".rs": "Rust", ".rb": "Ruby", ".php": "PHP",
+            ".sh": "Shell", ".bash": "Shell", ".sql": "SQL",
+            ".html": "HTML", ".css": "CSS", ".vue": "Vue", ".jsx": "React",
+        }
+        
+        for root, dirs, files in os.walk(project_path):
+            # 跳过隐藏目录和常见忽略目录
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in {
+                'node_modules', '__pycache__', 'venv', '.venv', 'env',
+                '.git', '.idea', '.vscode', 'dist', 'build', '.trash'
+            }]
+            
+            for fname in files:
+                fp = os.path.join(root, fname)
+                try:
+                    size = os.path.getsize(fp)
+                    total_size += size
+                    file_count += 1
+                    
+                    ext = os.path.splitext(fname)[1].lower()
+                    if ext in code_extensions:
+                        lang = code_extensions[ext]
+                        lang_count[lang] = lang_count.get(lang, 0) + 1
+                except OSError:
+                    pass
+        
+        # 按文件数排序语言
+        sorted_langs = sorted(lang_count.items(), key=lambda x: x[1], reverse=True)
+        
+        context["structure"] = {
+            "file_count": file_count,
+            "total_size": total_size,
+            "languages": ", ".join(f"{lang}({cnt})" for lang, cnt in sorted_langs[:5]) if sorted_langs else "未知",
+            "language_counts": lang_count,
+        }
+        
+        # 收集核心文件列表（按大小排序，取前20个）
+        core_files = []
+        for root, dirs, files in os.walk(project_path):
+            dirs[:] = [d for d in dirs if not d.startswith('.') and d not in {
+                'node_modules', '__pycache__', 'venv', '.venv', 'env',
+                '.git', '.idea', '.vscode', 'dist', 'build', '.trash'
+            }]
+            for fname in files:
+                fp = os.path.join(root, fname)
+                ext = os.path.splitext(fname)[1].lower()
+                if ext in code_extensions:
+                    try:
+                        size = os.path.getsize(fp)
+                        rel_path = os.path.relpath(fp, project_path)
+                        core_files.append({"path": rel_path, "size": size, "full_path": fp})
+                    except OSError:
+                        pass
+        
+        core_files.sort(key=lambda x: x["size"], reverse=True)
+        context["files"] = core_files[:20]
+        
+        return context
+
+
 def test():
     """测试 InformationCollector"""
     collector = InformationCollector()

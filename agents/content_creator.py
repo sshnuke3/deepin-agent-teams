@@ -240,6 +240,91 @@ class ContentCreator:
 
         return result
 
+    def analyze_code(self, file_path: str, content: str = None) -> Dict:
+        """分析单个代码文件"""
+        result = {
+            "file": file_path,
+            "lines": 0,
+            "functions": [],
+            "classes": [],
+            "imports": [],
+            "complexity": "unknown",
+            "summary": "",
+        }
+        
+        if content is None:
+            try:
+                with open(file_path, 'r', encoding='utf-8', errors='ignore') as f:
+                    content = f.read()
+            except Exception as e:
+                result["summary"] = f"无法读取文件: {e}"
+                return result
+        
+        lines = content.split('\n')
+        result["lines"] = len(lines)
+        
+        # 提取 import
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('import ') or stripped.startswith('from '):
+                result["imports"].append(stripped[:80])
+        
+        # 提取函数和类
+        for line in lines:
+            stripped = line.strip()
+            if stripped.startswith('def '):
+                func_name = stripped.split('(')[0].replace('def ', '').strip()
+                result["functions"].append(func_name)
+            elif stripped.startswith('class '):
+                class_name = stripped.split('(')[0].split(':')[0].replace('class ', '').strip()
+                result["classes"].append(class_name)
+        
+        # 简单复杂度评估
+        if len(lines) > 500:
+            result["complexity"] = "high"
+        elif len(lines) > 200:
+            result["complexity"] = "medium"
+        else:
+            result["complexity"] = "low"
+        
+        # 生成摘要
+        parts = []
+        if result["classes"]:
+            parts.append(f"类: {', '.join(result['classes'][:3])}")
+        if result["functions"]:
+            parts.append(f"函数: {len(result['functions'])}个")
+        parts.append(f"{result['lines']}行")
+        result["summary"] = " | ".join(parts)
+        
+        return result
+
+    def generate_code_report(self, project_path: str, structure: Dict, analyses: List[Dict]) -> str:
+        """生成代码分析报告"""
+        report = []
+        project_name = os.path.basename(project_path.rstrip('/'))
+        
+        report.append(f"# {project_name} 代码分析报告\n")
+        report.append(f"📁 项目路径: {project_path}\n")
+        
+        # 项目结构
+        report.append("## 项目结构\n")
+        report.append(f"- 文件总数: {structure.get('file_count', 0)}")
+        report.append(f"- 语言分布: {structure.get('languages', '未知')}\n")
+        
+        # 核心文件分析
+        report.append("## 核心文件分析\n")
+        for analysis in analyses:
+            report.append(f"### {analysis.get('file', '未知')}\n")
+            report.append(f"- 行数: {analysis.get('lines', 0)}")
+            if analysis.get('classes'):
+                report.append(f"- 类: {', '.join(analysis['classes'][:5])}")
+            if analysis.get('functions'):
+                report.append(f"- 函数: {', '.join(analysis['functions'][:10])}")
+            report.append(f"- 复杂度: {analysis.get('complexity', '未知')}")
+            report.append(f"- 摘要: {analysis.get('summary', '')}\n")
+        
+        return "\n".join(report)
+
     def _format_email(self, draft: EmailDraft) -> str:
         """格式化邮件为可读字符串"""
         email = []
