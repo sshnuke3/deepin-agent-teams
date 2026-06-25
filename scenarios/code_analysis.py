@@ -76,6 +76,12 @@ class CodeAnalysisAssistant:
                     intent["project_path"] = candidate
                     break
 
+        # 未指定路径时，默认使用当前工作目录（项目自身）
+        if not intent["project_path"]:
+            default_path = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            if os.path.isdir(default_path):
+                intent["project_path"] = default_path
+
         # 提取编程语言
         lang_keywords = {
             "python": ["python", "py", "python3"],
