@@ -452,6 +452,8 @@ class ChatWindow(QMainWindow):
                 scenario_key = _confirm_map.get(confirm, confirm)
                 scenario_type = confirm
                 self._last_suggestion_type = None
+                # 把确认词替换为带上下文的提示，让 Agent 知道要做什么
+                text = self._build_confirm_prompt(scenario_type)
             else:
                 self._last_suggestion_type = None
 
@@ -531,10 +533,11 @@ class ChatWindow(QMainWindow):
     # 确认词（中英文）
     _CONFIRM_WORDS = [
         "是", "好", "可以", "确认", "行", "嗯", "对", "好的", "是的", "没问题",
+        "需要", "要", "来一个", "来吧", "搞起", "上", "整", "整一个",
         "yes", "y", "ok", "sure", "yeah", "yep", "do it", "go ahead",
         "please", "sure thing", "of course", "affirmative",
         "diagnose", "diagnose it", "do that", "let's go", "confirm",
-        "do", "好的诊断", "诊断一下", "帮我诊断",
+        "do", "好的诊断", "诊断一下", "帮我诊断", "分析一下", "帮我分析",
     ]
 
     def show_proactive_suggestion(self, text: str):
@@ -572,6 +575,18 @@ class ChatWindow(QMainWindow):
         if text_lower.startswith(("yes", "yeah", "yep", "ok", "sure", "do it", "go ahead")):
             return self._last_suggestion_type
         return ""
+
+    def _build_confirm_prompt(self, scenario_type: str) -> str:
+        """
+        把确认词转成带上下文的提示，让 Agent 知道要做什么
+        """
+        _prompt_map = {
+            "diagnose": "请诊断当前系统异常，给出原因和修复建议",
+            "translate": "请将剪贴板中的英文内容翻译成中文",
+            "analyze_code": "请分析当前打开的代码文件，给出结构和改进建议",
+            "summarize": "请总结剪贴板中的长文本要点",
+        }
+        return _prompt_map.get(scenario_type, "好的，请执行")
 
     def _add_perception_message(self, text):
         """添加感知推荐消息"""
