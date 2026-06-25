@@ -298,30 +298,48 @@ class ContentCreator:
         
         return result
 
-    def generate_code_report(self, project_path: str, structure: Dict, analyses: List[Dict]) -> str:
+    def generate_code_report(self, project_name: str = None, project_path: str = None, 
+                              structure: Dict = None, analyses: List[Dict] = None,
+                              tree: str = None, file_count: int = 0, code_sections: str = None) -> str:
         """生成代码分析报告"""
         report = []
-        project_name = os.path.basename(project_path.rstrip('/'))
         
-        report.append(f"# {project_name} 代码分析报告\n")
-        report.append(f"📁 项目路径: {project_path}\n")
+        name = project_name or os.path.basename((project_path or "").rstrip('/')) or "未知项目"
+        
+        report.append(f"# {name} 代码分析报告\n")
+        if project_path:
+            report.append(f"📁 项目路径: {project_path}\n")
         
         # 项目结构
         report.append("## 项目结构\n")
-        report.append(f"- 文件总数: {structure.get('file_count', 0)}")
-        report.append(f"- 语言分布: {structure.get('languages', '未知')}\n")
+        if structure:
+            report.append(f"- 文件总数: {structure.get('file_count', file_count)}")
+            report.append(f"- 语言分布: {structure.get('languages', '未知')}\n")
+        elif file_count:
+            report.append(f"- 文件总数: {file_count}\n")
+        
+        # 项目树
+        if tree:
+            report.append("## 目录树\n")
+            report.append(f"```\n{tree}\n```\n")
         
         # 核心文件分析
-        report.append("## 核心文件分析\n")
-        for analysis in analyses:
-            report.append(f"### {analysis.get('file', '未知')}\n")
-            report.append(f"- 行数: {analysis.get('lines', 0)}")
-            if analysis.get('classes'):
-                report.append(f"- 类: {', '.join(analysis['classes'][:5])}")
-            if analysis.get('functions'):
-                report.append(f"- 函数: {', '.join(analysis['functions'][:10])}")
-            report.append(f"- 复杂度: {analysis.get('complexity', '未知')}")
-            report.append(f"- 摘要: {analysis.get('summary', '')}\n")
+        if analyses:
+            report.append("## 核心文件分析\n")
+            for analysis in analyses:
+                report.append(f"### {analysis.get('file', '未知')}\n")
+                report.append(f"- 行数: {analysis.get('lines', 0)}")
+                if analysis.get('classes'):
+                    report.append(f"- 类: {', '.join(analysis['classes'][:5])}")
+                if analysis.get('functions'):
+                    report.append(f"- 函数: {', '.join(analysis['functions'][:10])}")
+                report.append(f"- 复杂度: {analysis.get('complexity', '未知')}")
+                report.append(f"- 摘要: {analysis.get('summary', '')}\n")
+        
+        # 代码片段
+        if code_sections:
+            report.append("## 代码片段\n")
+            report.append(code_sections)
         
         return "\n".join(report)
 
