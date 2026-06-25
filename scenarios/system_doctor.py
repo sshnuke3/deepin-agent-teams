@@ -31,9 +31,10 @@ class SystemDoctor:
         self.issue_keywords = {
             "audio": ["声音", "音频", "声卡", "没声", "audio", "sound", "sound card"],
             "network": ["网络", "wifi", "网", "上不了", "network", "internet"],
-            "printer": ["打印", "打印机", "print", "printer"],
+            "printer": ["打印", "打印机", "print", "printer", "cups", "cupsd"],
             "bluetooth": ["蓝牙", "bluetooth", "蓝牙耳机"],
             "install": ["安装", "装", "install", "app"],
+            "service": ["服务", "service", "systemctl", "daemon"],
         }
 
     def classify_issue(self, user_input: str) -> Dict:

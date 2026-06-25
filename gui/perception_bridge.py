@@ -133,8 +133,11 @@ class PerceptionBridge(QObject):
                 "diagnose": f"⚠️ 检测到服务异常（{decision.context.get('service', '')}），需要诊断吗？",
             }
             hint = hints.get(decision.action, f"🔍 {decision.reasoning}")
-            # 传递窗口标题作为上下文，用于确认时定位文件
-            context = getattr(decision, 'context', {}).get('window_title', self._last_window_title)
+            # 传递上下文：诊断时传服务名，其他传窗口标题
+            if decision.action == "diagnose":
+                context = decision.context.get('service', '')
+            else:
+                context = getattr(decision, 'context', {}).get('window_title', self._last_window_title)
             self.proactive_suggestion.emit(hint, context)
 
     # ---- 系统感知 ----

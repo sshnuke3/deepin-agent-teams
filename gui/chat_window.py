@@ -590,6 +590,10 @@ class ChatWindow(QMainWindow):
             if file_name:
                 return f"分析代码文件 {file_name} 的结构"
         
+        if scenario_type == "diagnose" and ctx:
+            # 诊断具体服务
+            return f"诊断 {ctx} 服务异常，给出原因和修复建议"
+        
         _prompt_map = {
             "diagnose": "诊断系统异常，给出原因和修复建议",
             "translate": "翻译剪贴板中的英文内容",
