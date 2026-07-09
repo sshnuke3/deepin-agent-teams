@@ -11,6 +11,23 @@
 
 ---
 
+## ⚡ 30 秒看懂
+
+> **这是什么**:多智能体协作系统,在 deepin 25 上跑,通过 OpenClaw 框架 + 百度文心大模型,把复杂任务自动拆给一群小 AI 一起干。
+
+![Demo](assets/demo.png)
+
+- 🎯 **解决啥** — 真实工程任务(写代码/读文献/做诊断/回邮件),不是 demo
+- 🧠 **怎么干** — Lead Agent 拆任务 → Orchestrator 派活 → Worker 池执行 → Verifier 独立质检
+- 🛡️ **不出错** — 状态机跳转写死 + 工具白名单 + 四值确认 + 循环推诿熔断
+- 🏆 **成绩** — 第十期飞桨黑客松 进阶任务 #27 完整交付,deepin25 验证 34/34 通过
+- 🚀 **开干** — `python3 agents/orchestrator_v4.py` (5 分钟跑通第一个 demo)
+
+**看完整 README?** 跳到 [🏗️ 系统架构](#-系统架构)
+**跑起来?** 跳到 [🚀 快速开始](#-快速开始)
+
+---
+
 ## 🎯 项目简介
 
 本项目实现了**多智能体（Multi-Agent）协作系统**，在 deepin 25 桌面环境中，通过自然语言交互完成复杂任务的自动拆解、多 Agent 协同执行和结果汇总。
@@ -22,6 +39,13 @@
 ---
 
 ## 🏗️ 系统架构
+
+> **矢量图版**(新):[`assets/architecture.svg`](assets/architecture.svg) · **PNG 备份**:`assets/architecture.png`
+
+![架构图](assets/architecture.png)
+
+<details>
+<summary>📜 完整 ASCII 流程图(点击展开)</summary>
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
@@ -130,6 +154,8 @@
 │  📧邮件助手 · 🩺系统诊断 · 🔍代码分析 · 📚文献阅读              │
 └─────────────────────────────────────────────────────────────────┘
 ```
+
+</details>
 
 ---
 
@@ -475,3 +501,32 @@ python3 agents/input_scanner.py     # 输入扫描
 | 多 Agent | OpenClaw `sessions_spawn` | 进程隔离 |
 | 安全扫描 | input_scanner + security_config | 注入/PII/危险指令/工具白名单 |
 | 执行沙箱 | DockerHands | Brain/Hands 分离，容器化隔离 |
+
+---
+
+## 🤝 参与共建
+
+本项目是**第十期飞桨黑客松**交付物,代码已开源,欢迎:
+
+- 🐛 **提 Issue** — 反馈 bug / 提需求 / 提文档问题
+- 🔧 **提 PR** — 修 typo / 修链接 / 加文档 / 加测试
+- 💬 **讨论** — GitHub Issue 区开帖即可
+
+**已应用场景**:邮件助手 / 系统诊断 / 代码分析 / 文献阅读  
+**欢迎扩展**:新增 Worker 类型(在 `agents/` 下继承 `WorkerBase`)、新增 MCP Server(在 `mcp_servers/` 下参照 `model_server.py` 模板)
+
+### 关联项目
+
+- 🏆 [第十期飞桨黑客松 赛题](https://github.com/PaddlePaddle/community/blob/master/hackathon/hackathon_10th/【Hackathon_10th】文心合作伙伴任务合集.md#统信deepin-agent-teams-智能体团队协作系统)
+- 🦞 [OpenClaw 框架](https://github.com/openclaw)
+- 🤖 [百度文心大模型](https://cloud.baidu.com/product/wenxin)
+
+---
+
+## 📜 许可证
+
+MIT License — 详见 [LICENSE](LICENSE) 文件
+
+---
+
+*最后更新:2026-07-09(添加 30 秒看懂 + 矢量架构图 + Demo 截图 + 参与共建)*
