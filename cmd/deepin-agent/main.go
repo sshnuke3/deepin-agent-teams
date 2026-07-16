@@ -2,7 +2,8 @@
 //
 // 用法：
 //   deepin-agent chat "帮我切到深色模式"
-//   deepin-agent demo   # 跑内置演示
+//   deepin-agent chat "整理一下 Downloads" --apply   # 真移文件
+//   deepin-agent demo
 package main
 
 import (
@@ -12,18 +13,18 @@ import (
 	"log"
 	"os"
 
-	"github.com/sshnuke3/deepin-agent-teams/internal/agents"
 	"github.com/sshnuke3/deepin-agent-teams/internal/config"
 	"github.com/sshnuke3/deepin-agent-teams/internal/model"
 	"github.com/sshnuke3/deepin-agent-teams/internal/orchestrator"
 )
 
-const version = "v4.0.0-spike"
+const version = "v4.0.0-m2"
 
 func main() {
 	var (
 		showVersion = flag.Bool("version", false, "show version")
 		runDemo     = flag.Bool("demo", false, "run built-in demo")
+		applyMode   = flag.Bool("apply", false, "file organize: really move files (default: preview)")
 	)
 	flag.Parse()
 
@@ -32,13 +33,11 @@ func main() {
 		return
 	}
 
-	// 加载配置
 	cfg, err := config.Load()
 	if err != nil {
 		log.Fatalf("config load failed: %v", err)
 	}
 
-	// 初始化 ChatModel
 	ctx := context.Background()
 	chatModel, err := model.NewChatModel(ctx, cfg.LLMProvider, cfg.APIKey, cfg.BaseURL, cfg.Model)
 	if err != nil {
@@ -46,27 +45,28 @@ func main() {
 	}
 	log.Printf("✅ ChatModel: provider=%s model=%s", cfg.LLMProvider, cfg.Model)
 
-	// 初始化 Agent + Orchestrator
-	intentAgent := agents.NewIntentAgent(chatModel)
-	orch := orchestrator.New(intentAgent)
+	orch := orchestrator.New(chatModel)
 
-	// demo 模式
 	if *runDemo {
 		runBuiltInDemo(ctx, orch)
 		return
 	}
 
-	// chat 模式
 	args := flag.Args()
 	if len(args) == 0 {
 		fmt.Println("用法: deepin-agent [--demo] chat \"你的指令\"")
-		fmt.Println("     deepin-agent --demo")
+		fmt.Println("     deepin-agent chat \"整理 Downloads\" --apply   # 真移文件")
 		os.Exit(1)
 	}
 
 	userInput := args[0]
 	if args[0] == "chat" && len(args) > 1 {
 		userInput = args[1]
+	}
+
+	// 如果是文件整理且 --apply，转发给 Intent
+	if *applyMode {
+		userInput = userInput + " (apply mode)"
 	}
 
 	result, err := orch.Run(ctx, userInput)
@@ -82,10 +82,13 @@ func runBuiltInDemo(ctx context.Context, orch *orchestrator.Orchestrator) {
 		"切换到浅色主题吧",
 		"自动主题跟随系统",
 		"看一下系统信息",
-		"今天北京天气怎么样",
+		// 文件整理场景 (M2 新增)
+		"整理一下 ~/Downloads 看看",
 	}
 
-	fmt.Println("\n===== deepin-agent v4 内置 demo =====\n")
+	fmt.Println()
+	fmt.Println("===== deepin-agent v4 M2 内置 demo =====")
+	fmt.Println()
 	for _, input := range testCases {
 		fmt.Printf("👤 User: %s\n", input)
 		result, err := orch.Run(ctx, input)
@@ -93,6 +96,6 @@ func runBuiltInDemo(ctx context.Context, orch *orchestrator.Orchestrator) {
 			log.Printf("❌ Error: %v\n\n", err)
 			continue
 		}
-		fmt.Printf("🤖 Agent: %s\n\n", result)
+		fmt.Printf("🤖 Agent:\n%s\n", result)
 	}
 }

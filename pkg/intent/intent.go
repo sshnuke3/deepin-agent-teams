@@ -9,8 +9,20 @@ import "encoding/json"
 const (
 	ActionChangeTheme   = "change_theme"
 	ActionGetSystemInfo = "get_system_info"
+	ActionOrganizeFiles = "organize_files"
 	ActionUnknown       = "unknown"
 )
+
+// 整理文件的分类规则（按扩展名）
+var OrganizeCategories = map[string][]string{
+	"images":   {".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".svg"},
+	"docs":     {".pdf", ".doc", ".docx", ".txt", ".md", ".rtf", ".odt"},
+	"sheets":   {".xls", ".xlsx", ".csv", ".ods"},
+	"videos":   {".mp4", ".mkv", ".avi", ".mov", ".webm", ".flv"},
+	"audio":    {".mp3", ".wav", ".flac", ".aac", ".ogg", ".m4a"},
+	"archives": {".zip", ".tar", ".gz", ".7z", ".rar", ".bz2", ".xz"},
+	"code":     {".go", ".py", ".js", ".ts", ".rs", ".java", ".cpp", ".c", ".h", ".sh"},
+}
 
 // Theme 枚举
 const (
@@ -23,6 +35,9 @@ const (
 type Intent struct {
 	Action string `json:"action"`
 	Theme  string `json:"theme,omitempty"`
+	// 文件整理相关
+	Directory string `json:"directory,omitempty"` // 目标目录（默认 ~/Downloads）
+	Mode      string `json:"mode,omitempty"`      // "preview" (默认) | "apply" 是否真移文件
 }
 
 // Parse 从 LLM 返回的 JSON 字符串解析 Intent
@@ -38,10 +53,20 @@ func Parse(s string) (*Intent, error) {
 
 	// 校验
 	switch i.Action {
-	case ActionChangeTheme, ActionGetSystemInfo, ActionUnknown:
+	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionUnknown:
 		// OK
 	default:
 		i.Action = ActionUnknown
+	}
+
+	// 文件整理的安全默认值
+	if i.Action == ActionOrganizeFiles {
+		if i.Directory == "" {
+			i.Directory = "~/Downloads"
+		}
+		if i.Mode == "" {
+			i.Mode = "preview" // 默认只看不摸
+		}
 	}
 	return &i, nil
 }
