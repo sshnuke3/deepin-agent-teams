@@ -41,11 +41,13 @@ func New(chatModel model.ChatModel) *Orchestrator {
 
 // PipelineContext 三段 Chain 中传递的中间状态
 type PipelineContext struct {
-	UserInput string
-	Intent    *intentpkg.Intent
-	Plan      *agents.OrganizePlan
-	Report    *tools.OrganizeReport
-	Verify    *agents.Verification
+	UserInput     string
+	Intent        *intentpkg.Intent
+	Plan          *agents.OrganizePlan
+	ReminderPlan  *agents.ReminderPlan
+	Report        *tools.OrganizeReport
+	ReminderReport *tools.ReminderReport
+	Verify        *agents.Verification
 }
 
 // Run 处理用户输入，返回响应
@@ -84,12 +86,34 @@ func (o *Orchestrator) stagePlan(ctx context.Context, userInput string) (*Pipeli
 	}
 	pc.Intent = it
 
-	// 1b. 非文件整理 → 走原 v3 路径（主题/系统信息）
-	if it.Action != intentpkg.ActionOrganizeFiles {
+	// 1b. 非文件整理/日程提醒 → 走原 v3 路径（主题/系统信息）
+	if it.Action != intentpkg.ActionOrganizeFiles && it.Action != intentpkg.ActionScheduleReminder {
 		return pc, nil
 	}
 
-	// 1c. 文件整理 → 调 Planner 生成详细计划
+	// 1c. 日程提醒 → 调 Planner 翻译自然语言时间
+	if it.Action == intentpkg.ActionScheduleReminder {
+		rp, err := o.planner.PlanReminder(ctx, userInput, it)
+		if err != nil {
+			// Planner 失败 → 用 Intent 默认值兜底
+			rp = &agents.ReminderPlan{
+				Title:    it.Title,
+				DueAt:    it.DueAt,
+				Priority: it.Priority,
+				Mode:     it.Mode,
+			}
+			if rp.Priority == "" {
+				rp.Priority = "normal"
+			}
+			if rp.Mode == "" {
+				rp.Mode = "preview"
+			}
+		}
+		pc.ReminderPlan = rp
+		return pc, nil
+	}
+
+	// 1d. 文件整理 → 调 Planner 生成详细计划
 	plan, err := o.planner.PlanOrganize(ctx, userInput, it)
 	if err != nil {
 		// Planner 失败 → 用 Intent 默认值兜底
@@ -134,12 +158,18 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		return pc, nil
 	}
 
-	if pc.Intent.Action != intentpkg.ActionOrganizeFiles {
+	if pc.Intent.Action != intentpkg.ActionOrganizeFiles && pc.Intent.Action != intentpkg.ActionScheduleReminder {
 		pc.Report = &tools.OrganizeReport{
 			Mode:        "unknown",
 			VerifPassed: false,
 			VerifMsg:    "未识别意图",
 		}
+		return pc, nil
+	}
+
+	// 日程提醒：调真实工具
+	if pc.Intent.Action == intentpkg.ActionScheduleReminder {
+		pc.ReminderReport = tools.ScheduleReminder(ctx, pc.ReminderPlan.Title, pc.ReminderPlan.DueAt, pc.ReminderPlan.Priority, pc.ReminderPlan.Mode)
 		return pc, nil
 	}
 
@@ -150,6 +180,10 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 
 // stageVerify Stage 3: Verifier 校验
 func (o *Orchestrator) stageVerify(ctx context.Context, pc *PipelineContext) (*PipelineContext, error) {
+	if pc.Intent != nil && pc.Intent.Action == intentpkg.ActionScheduleReminder {
+		pc.Verify = o.verifier.VerifyReminderReport(ctx, pc.ReminderReport)
+		return pc, nil
+	}
 	pc.Verify = o.verifier.VerifyOrganizeReport(ctx, pc.Report)
 	return pc, nil
 }
@@ -169,6 +203,9 @@ func formatOutput(pc *PipelineContext) (string, error) {
 
 	case intentpkg.ActionOrganizeFiles:
 		return formatOrganizeOutput(pc), nil
+
+	case intentpkg.ActionScheduleReminder:
+		return formatReminderOutput(pc), nil
 
 	default:
 		return "🤔 我没理解您的意思，请尝试：'整理 Downloads 文件' 或 '切到深色模式'", nil
@@ -203,6 +240,42 @@ func formatOrganizeOutput(pc *PipelineContext) string {
 	}
 	if pc.Report.OtherCount > 0 {
 		sb.WriteString(fmt.Sprintf("  - 其他（不分类）: %d 个\n", pc.Report.OtherCount))
+	}
+
+	// 验证
+	sb.WriteString("\n**验证**:\n")
+	if pc.Verify.Passed {
+		sb.WriteString(fmt.Sprintf("  ✅ %s\n", pc.Verify.Reason))
+	} else {
+		sb.WriteString(fmt.Sprintf("  ❌ %s\n", pc.Verify.Reason))
+	}
+
+	return sb.String()
+}
+
+// formatReminderOutput 格式化日程提醒输出（v4 M2 新增）
+func formatReminderOutput(pc *PipelineContext) string {
+	var sb strings.Builder
+	rp := pc.ReminderPlan
+	rr := pc.ReminderReport
+
+	if rp.Mode == "preview" {
+		sb.WriteString("📅 **日程提醒预览**（未写入，加 --apply 才会存储）\n\n")
+	} else {
+		sb.WriteString("🚀 **日程提醒已存储**\n\n")
+	}
+
+	sb.WriteString(fmt.Sprintf("📌 标题: **%s**\n", rp.Title))
+	sb.WriteString(fmt.Sprintf("⏰ 时间: %s\n", rp.DueAt))
+	sb.WriteString(fmt.Sprintf("🎯 优先级: %s\n", rp.Priority))
+
+	if rp.Mode == "apply" && rr != nil && rr.StoragePath != "" {
+		sb.WriteString(fmt.Sprintf("🆔 ID: `%s`\n", rr.ReminderID))
+		sb.WriteString(fmt.Sprintf("📁 路径: `%s`\n", rr.StoragePath))
+	}
+
+	if rp.Rationale != "" {
+		sb.WriteString(fmt.Sprintf("\n💡 判断: %s\n", rp.Rationale))
 	}
 
 	// 验证

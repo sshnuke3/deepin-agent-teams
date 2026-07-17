@@ -7,10 +7,11 @@ import "encoding/json"
 
 // Action 类型
 const (
-	ActionChangeTheme   = "change_theme"
-	ActionGetSystemInfo = "get_system_info"
-	ActionOrganizeFiles = "organize_files"
-	ActionUnknown       = "unknown"
+	ActionChangeTheme     = "change_theme"
+	ActionGetSystemInfo   = "get_system_info"
+	ActionOrganizeFiles   = "organize_files"
+	ActionScheduleReminder = "schedule_reminder" // v4 M2: 日程提醒 demo
+	ActionUnknown         = "unknown"
 )
 
 // 整理文件的分类规则（按扩展名）
@@ -38,6 +39,10 @@ type Intent struct {
 	// 文件整理相关
 	Directory string `json:"directory,omitempty"` // 目标目录（默认 ~/Downloads）
 	Mode      string `json:"mode,omitempty"`      // "preview" (默认) | "apply" 是否真移文件
+	// 日程提醒相关（v4 M2）
+	Title    string `json:"title,omitempty"`     // 提醒标题
+	DueAt    string `json:"due_at,omitempty"`    // 提醒时间 (ISO8601 或自然语言描述)
+	Priority string `json:"priority,omitempty"`  // "low" | "normal" | "high"
 }
 
 // Parse 从 LLM 返回的 JSON 字符串解析 Intent
@@ -53,7 +58,7 @@ func Parse(s string) (*Intent, error) {
 
 	// 校验
 	switch i.Action {
-	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionUnknown:
+	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionScheduleReminder, ActionUnknown:
 		// OK
 	default:
 		i.Action = ActionUnknown
@@ -66,6 +71,21 @@ func Parse(s string) (*Intent, error) {
 		}
 		if i.Mode == "" {
 			i.Mode = "preview" // 默认只看不摸
+		}
+	}
+
+	// 日程提醒的安全默认值
+	if i.Action == ActionScheduleReminder {
+		if i.Priority == "" {
+			i.Priority = "normal"
+		}
+		// Mode 复用：preview=只看不建，apply=真的写入 ~/.local/share/deepin-agent/reminders/
+		if i.Mode == "" {
+			i.Mode = "preview"
+		}
+		// Title 必填，没填就当 unknown
+		if i.Title == "" {
+			i.Action = ActionUnknown
 		}
 	}
 	return &i, nil

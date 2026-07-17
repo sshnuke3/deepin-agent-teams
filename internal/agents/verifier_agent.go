@@ -68,3 +68,29 @@ func (v *VerifierAgent) VerifyOrganizeReport(ctx context.Context, report *tools.
 
 	return &Verification{Passed: false, Reason: fmt.Sprintf("未知 mode: %s", report.Mode)}
 }
+
+// VerifyReminderReport 验证日程提醒报告（v4 M2 新增）
+//
+// 检查项：
+//  1. preview 模式：标题非空 + 报告自洽
+//  2. apply 模式：StoragePath 存在 + JSON 可解析 + title 一致
+func (v *VerifierAgent) VerifyReminderReport(ctx context.Context, report *tools.ReminderReport) *Verification {
+	if report == nil {
+		return &Verification{Passed: false, Reason: "报告为空"}
+	}
+	if report.Title == "" {
+		return &Verification{Passed: false, Reason: "title 为空"}
+	}
+
+	// preview 模式：只校验报告自洽
+	if report.Mode != "apply" {
+		return &Verification{Passed: true, Reason: fmt.Sprintf("preview 报告自洽: '%s' 计划于 %s", report.Title, report.DueAt)}
+	}
+
+	// apply 模式：实地验证文件
+	if report.StoragePath == "" {
+		return &Verification{Passed: false, Reason: "apply 模式但 StoragePath 为空"}
+	}
+	ok, msg := tools.VerifyReminder(ctx, report.StoragePath, report.Title)
+	return &Verification{Passed: ok, Reason: msg}
+}
