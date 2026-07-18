@@ -48,10 +48,12 @@ make demo
 👤 切换到浅色主题吧        → ✅ 已切换到 deepin-light 主题
 👤 自动主题跟随系统        → ✅ 已切换到 deepin-auto 主题
 👤 看一下系统信息          → ✅ 主机名: ..., 系统: deepin 25
-👤 整理一下 ~/Downloads 看看 → 📋 文件整理预览 + Verifier 自洽报告（M2 新增）
+👤 整理一下 ~/Downloads 看看 → 📋 文件整理预览 + Verifier 自洽报告（M2）
+👤 提醒我明天下午 3 点开会    → 📅 日程提醒预览 + 时间解析（M2）
+👤 帮 alice 起草项目邮件     → 📧 邮件草稿预览 + Planner 撰文（M2）
 ```
 
-### 文件整理 demo（M2 新增）
+### 文件整理 demo（M2）
 
 ```bash
 # Preview 模式（默认安全）—— 只看不摸
@@ -132,7 +134,9 @@ deepin-agent v4
 │   │   └── json_helper.go    #   - JSON 容错解析
 │   └── tools/                # 工具实现
 │       ├── appearance.go     #   - 主题切换（mock DTK）
-│       └── file_organizer.go #   - 文件整理（真 IO，M2）
+│       ├── file_organizer.go #   - 文件整理（真 IO，M2）
+│       ├── reminder.go       #   - 日程提醒（写 ~/.local/.../reminders/，M2）
+│       └── email_drafter.go  #   - 邮件草稿（写 .eml，M2）
 ├── pkg/intent/               # 意图数据结构（导出包，外部可用）
 ├── Makefile                  # build / run / demo / test / build-all
 └── go.mod / go.sum
@@ -146,17 +150,21 @@ User Input
 ┌─────────────────────────────────────────────┐
 │ Stage 1: IntentAgent → PlannerAgent        │
 │   识别意图 + 生成执行计划（directory/mode）  │
+│   - 文件整理: directory + mode               │
+│   - 日程提醒: ISO8601 + priority            │
+│   - 邮件草稿: 正文撰写 + tone                │
 └─────────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────────┐
 │ Stage 2: Executor（直接调工具，不快不慢）   │
-│   appearance / file_organizer / sysinfo     │
+│   appearance / file_organizer / reminder /   │
+│   email_drafter / sysinfo                   │
 └─────────────────────────────────────────────┘
     ↓
 ┌─────────────────────────────────────────────┐
 │ Stage 3: VerifierAgent（独立校验）          │
 │   preview: 报告自洽检查                      │
-│   apply: 实地验证分类目录文件数              │
+│   apply: 实地验证（目录/文件/.eml）          │
 └─────────────────────────────────────────────┘
     ↓
 Formatted Output
@@ -196,7 +204,9 @@ chain := compose.NewChain[string, *PipelineContext]().
   - 新增 `PlannerAgent` / `VerifierAgent` / `file_organizer` 工具
   - 默认 preview 模式 + `--apply` 标志
   - 真实 demo 跑通：9 文件按 7 分类归位 + 实地校验通过
-- [ ] **v4.0 M2 续**：迁剩余 4 个 demo（日程提醒 / 邮件草稿 / 软件安装 / 系统设置），**优先级待定**
+- [x] **v4.0 M2 日程提醒 demo**（2026-07-17，commit `e062e20`）：Planner 翻译自然语言时间 + 写 ~/.local/.../reminders/
+- [x] **v4.0 M2 邮件草稿 demo**（2026-07-18）：Planner 撰文 + 写 RFC822 `.eml` 文件 + 4/4 单元测试 PASS
+- [ ] **v4.0 M2 续**：剩余 2 个 demo（软件安装 / 系统设置）
 - [ ] **v4.1**：流式响应（Eino first-class）
 - [ ] **v4.2**：MCP 工具层（标准协议 + 国产生态互操作）
 - [ ] **v4.3**：DTK/DDE D-Bus 集成（真 deepin 系统控制）

@@ -41,13 +41,15 @@ func New(chatModel model.ChatModel) *Orchestrator {
 
 // PipelineContext 三段 Chain 中传递的中间状态
 type PipelineContext struct {
-	UserInput     string
-	Intent        *intentpkg.Intent
-	Plan          *agents.OrganizePlan
-	ReminderPlan  *agents.ReminderPlan
-	Report        *tools.OrganizeReport
+	UserInput      string
+	Intent         *intentpkg.Intent
+	Plan           *agents.OrganizePlan
+	ReminderPlan   *agents.ReminderPlan
+	EmailPlan      *agents.EmailPlan
+	Report         *tools.OrganizeReport
 	ReminderReport *tools.ReminderReport
-	Verify        *agents.Verification
+	EmailReport    *tools.EmailDraftReport
+	Verify         *agents.Verification
 }
 
 // Run 处理用户输入，返回响应
@@ -86,8 +88,28 @@ func (o *Orchestrator) stagePlan(ctx context.Context, userInput string) (*Pipeli
 	}
 	pc.Intent = it
 
-	// 1b. 非文件整理/日程提醒 → 走原 v3 路径（主题/系统信息）
-	if it.Action != intentpkg.ActionOrganizeFiles && it.Action != intentpkg.ActionScheduleReminder {
+	// 1b. 非文件整理/日程提醒/邮件草稿 → 走原 v3 路径（主题/系统信息）
+	if it.Action != intentpkg.ActionOrganizeFiles && it.Action != intentpkg.ActionScheduleReminder && it.Action != intentpkg.ActionDraftEmail {
+		return pc, nil
+	}
+
+	// 1e. 邮件草稿 → 调 Planner 撰写正文
+	if it.Action == intentpkg.ActionDraftEmail {
+		ep, err := o.planner.PlanEmail(ctx, userInput, it)
+		if err != nil {
+			// Planner 失败 → 用 Intent 默认值兜底
+			ep = &agents.EmailPlan{
+				Recipient: it.Recipient,
+				Subject:   it.Subject,
+				Purpose:   it.Purpose,
+				Tone:      "formal",
+				Mode:      it.Mode,
+			}
+			if ep.Mode == "" {
+				ep.Mode = "preview"
+			}
+		}
+		pc.EmailPlan = ep
 		return pc, nil
 	}
 
@@ -141,10 +163,10 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		}
 		// 主题走 Result 报告，包装进 fake Report 复用 format
 		pc.Report = &tools.OrganizeReport{
-			Mode:         "theme",
-			VerifPassed:  true,
-			VerifMsg:     fmt.Sprintf("已切换到 %s 主题", theme),
-			AppliedCmds:  []string{fmt.Sprintf("theme.set(%s)", theme)},
+			Mode:        "theme",
+			VerifPassed: true,
+			VerifMsg:    fmt.Sprintf("已切换到 %s 主题", theme),
+			AppliedCmds: []string{fmt.Sprintf("theme.set(%s)", theme)},
 		}
 		return pc, nil
 	}
@@ -158,7 +180,7 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		return pc, nil
 	}
 
-	if pc.Intent.Action != intentpkg.ActionOrganizeFiles && pc.Intent.Action != intentpkg.ActionScheduleReminder {
+	if pc.Intent.Action != intentpkg.ActionOrganizeFiles && pc.Intent.Action != intentpkg.ActionScheduleReminder && pc.Intent.Action != intentpkg.ActionDraftEmail {
 		pc.Report = &tools.OrganizeReport{
 			Mode:        "unknown",
 			VerifPassed: false,
@@ -173,6 +195,12 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		return pc, nil
 	}
 
+	// 邮件草稿：调真实工具
+	if pc.Intent.Action == intentpkg.ActionDraftEmail {
+		pc.EmailReport = tools.DraftEmail(ctx, pc.EmailPlan.Recipient, pc.EmailPlan.Subject, pc.EmailPlan.Purpose, pc.EmailPlan.Body, pc.EmailPlan.Tone, pc.EmailPlan.Mode)
+		return pc, nil
+	}
+
 	// 文件整理：调真实工具
 	pc.Report = tools.OrganizeFiles(ctx, pc.Plan.Directory, pc.Plan.Mode)
 	return pc, nil
@@ -180,11 +208,14 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 
 // stageVerify Stage 3: Verifier 校验
 func (o *Orchestrator) stageVerify(ctx context.Context, pc *PipelineContext) (*PipelineContext, error) {
-	if pc.Intent != nil && pc.Intent.Action == intentpkg.ActionScheduleReminder {
+	switch pc.Intent.Action {
+	case intentpkg.ActionScheduleReminder:
 		pc.Verify = o.verifier.VerifyReminderReport(ctx, pc.ReminderReport)
-		return pc, nil
+	case intentpkg.ActionDraftEmail:
+		pc.Verify = o.verifier.VerifyEmailReport(ctx, pc.EmailReport)
+	default:
+		pc.Verify = o.verifier.VerifyOrganizeReport(ctx, pc.Report)
 	}
-	pc.Verify = o.verifier.VerifyOrganizeReport(ctx, pc.Report)
 	return pc, nil
 }
 
@@ -206,6 +237,9 @@ func formatOutput(pc *PipelineContext) (string, error) {
 
 	case intentpkg.ActionScheduleReminder:
 		return formatReminderOutput(pc), nil
+
+	case intentpkg.ActionDraftEmail:
+		return formatEmailOutput(pc), nil
 
 	default:
 		return "🤔 我没理解您的意思，请尝试：'整理 Downloads 文件' 或 '切到深色模式'", nil
@@ -276,6 +310,57 @@ func formatReminderOutput(pc *PipelineContext) string {
 
 	if rp.Rationale != "" {
 		sb.WriteString(fmt.Sprintf("\n💡 判断: %s\n", rp.Rationale))
+	}
+
+	// 验证
+	sb.WriteString("\n**验证**:\n")
+	if pc.Verify.Passed {
+		sb.WriteString(fmt.Sprintf("  ✅ %s\n", pc.Verify.Reason))
+	} else {
+		sb.WriteString(fmt.Sprintf("  ❌ %s\n", pc.Verify.Reason))
+	}
+
+	return sb.String()
+}
+
+// formatEmailOutput 格式化邮件草稿输出（v4 M2 新增）
+func formatEmailOutput(pc *PipelineContext) string {
+	var sb strings.Builder
+	ep := pc.EmailPlan
+	er := pc.EmailReport
+
+	if ep.Mode == "preview" {
+		sb.WriteString("📧 **邮件草稿预览**（未保存，加 --apply 才会落盘）\n\n")
+	} else {
+		sb.WriteString("🚀 **邮件草稿已保存**\n\n")
+	}
+
+	recipient := ep.Recipient
+	if recipient == "" {
+		recipient = "(未指定收件人)"
+	}
+	sb.WriteString(fmt.Sprintf("📨 收件人: `%s`\n", recipient))
+	sb.WriteString(fmt.Sprintf("📌 主题: **%s**\n", ep.Subject))
+	sb.WriteString(fmt.Sprintf("🎨 语气: %s\n", ep.Tone))
+
+	if ep.Mode == "apply" && er != nil && er.StoragePath != "" {
+		sb.WriteString(fmt.Sprintf("🆔 ID: `%s`\n", er.DraftID))
+		sb.WriteString(fmt.Sprintf("📁 路径: `%s`\n", er.StoragePath))
+	}
+
+	if ep.Purpose != "" {
+		sb.WriteString(fmt.Sprintf("\n💭 目的: %s\n", ep.Purpose))
+	}
+
+	if ep.Rationale != "" {
+		sb.WriteString(fmt.Sprintf("💡 判断: %s\n", ep.Rationale))
+	}
+
+	// 正文（用代码块包起来方便看格式）
+	if er != nil && er.Body != "" {
+		sb.WriteString("\n📝 **正文预览**:\n```\n")
+		sb.WriteString(er.Body)
+		sb.WriteString("\n```\n")
 	}
 
 	// 验证

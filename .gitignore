@@ -5,3 +5,10 @@ venv/
 tests/test_results_*
 test_results_*
 data/
+
+# Go build artifacts
+*.exe
+*.test
+*.out
+deepin-agent
+bin/

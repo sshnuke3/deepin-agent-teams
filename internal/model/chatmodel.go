@@ -31,10 +31,10 @@ func NewChatModel(ctx context.Context, provider, apiKey, baseURL, modelName stri
 		mt := maxTokens
 
 		return openai.NewChatModel(ctx, &openai.ChatModelConfig{
-			APIKey:     apiKey,
-			Model:      modelName,
-			BaseURL:    baseURL,
-			MaxTokens:  &mt,
+			APIKey:    apiKey,
+			Model:     modelName,
+			BaseURL:   baseURL,
+			MaxTokens: &mt,
 		})
 	default:
 		return nil, fmt.Errorf("unsupported LLM provider: %s", provider)

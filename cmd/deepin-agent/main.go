@@ -1,9 +1,10 @@
 // deepin-agent: deepin 系统设置 AI Agent (v4)
 //
 // 用法：
-//   deepin-agent chat "帮我切到深色模式"
-//   deepin-agent chat "整理一下 Downloads" --apply   # 真移文件
-//   deepin-agent demo
+//
+//	deepin-agent chat "帮我切到深色模式"
+//	deepin-agent chat "整理一下 Downloads" --apply   # 真移文件
+//	deepin-agent demo
 package main
 
 import (
@@ -18,7 +19,7 @@ import (
 	"github.com/sshnuke3/deepin-agent-teams/internal/orchestrator"
 )
 
-const version = "v4.0.0-m2"
+const version = "v4.0.0-m2.3"
 
 func main() {
 	var (
@@ -82,8 +83,12 @@ func runBuiltInDemo(ctx context.Context, orch *orchestrator.Orchestrator) {
 		"切换到浅色主题吧",
 		"自动主题跟随系统",
 		"看一下系统信息",
-		// 文件整理场景 (M2 新增)
+		// 文件整理场景 (M2)
 		"整理一下 ~/Downloads 看看",
+		// 日程提醒场景 (M2)
+		"提醒我明天下午 3 点开会",
+		// 邮件草稿场景 (M2)
+		"帮 alice@example.com 起草一封项目进度同步邮件，主题：v4 M2 完成",
 	}
 
 	fmt.Println()

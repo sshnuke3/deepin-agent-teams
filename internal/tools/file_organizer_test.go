@@ -13,13 +13,13 @@ func TestOrganizeFiles_Preview(t *testing.T) {
 	dir := t.TempDir()
 	// 创建测试文件
 	files := map[string]string{
-		"a.jpg":  "image",
-		"b.png":  "image",
-		"c.pdf":  "docs",
-		"d.mp4":  "videos",
-		"e.zip":  "archives",
-		"f.go":   "code",
-		"rand":   "other", // 无扩展名 → other
+		"a.jpg": "image",
+		"b.png": "image",
+		"c.pdf": "docs",
+		"d.mp4": "videos",
+		"e.zip": "archives",
+		"f.go":  "code",
+		"rand":  "other", // 无扩展名 → other
 	}
 	for name := range files {
 		path := filepath.Join(dir, name)

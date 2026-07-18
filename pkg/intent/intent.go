@@ -7,11 +7,12 @@ import "encoding/json"
 
 // Action 类型
 const (
-	ActionChangeTheme     = "change_theme"
-	ActionGetSystemInfo   = "get_system_info"
-	ActionOrganizeFiles   = "organize_files"
+	ActionChangeTheme      = "change_theme"
+	ActionGetSystemInfo    = "get_system_info"
+	ActionOrganizeFiles    = "organize_files"
 	ActionScheduleReminder = "schedule_reminder" // v4 M2: 日程提醒 demo
-	ActionUnknown         = "unknown"
+	ActionDraftEmail       = "draft_email"       // v4 M2: 邮件草稿 demo
+	ActionUnknown          = "unknown"
 )
 
 // 整理文件的分类规则（按扩展名）
@@ -40,9 +41,13 @@ type Intent struct {
 	Directory string `json:"directory,omitempty"` // 目标目录（默认 ~/Downloads）
 	Mode      string `json:"mode,omitempty"`      // "preview" (默认) | "apply" 是否真移文件
 	// 日程提醒相关（v4 M2）
-	Title    string `json:"title,omitempty"`     // 提醒标题
-	DueAt    string `json:"due_at,omitempty"`    // 提醒时间 (ISO8601 或自然语言描述)
-	Priority string `json:"priority,omitempty"`  // "low" | "normal" | "high"
+	Title    string `json:"title,omitempty"`    // 提醒标题
+	DueAt    string `json:"due_at,omitempty"`   // 提醒时间 (ISO8601 或自然语言描述)
+	Priority string `json:"priority,omitempty"` // "low" | "normal" | "high"
+	// 邮件草稿相关（v4 M2）
+	Recipient string `json:"recipient,omitempty"` // 收件人邮箱
+	Subject   string `json:"subject,omitempty"`   // 邮件主题
+	Purpose   string `json:"purpose,omitempty"`   // 邮件目的/要点（自然语言描述）
 }
 
 // Parse 从 LLM 返回的 JSON 字符串解析 Intent
@@ -58,7 +63,7 @@ func Parse(s string) (*Intent, error) {
 
 	// 校验
 	switch i.Action {
-	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionScheduleReminder, ActionUnknown:
+	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionScheduleReminder, ActionDraftEmail, ActionUnknown:
 		// OK
 	default:
 		i.Action = ActionUnknown
@@ -85,6 +90,18 @@ func Parse(s string) (*Intent, error) {
 		}
 		// Title 必填，没填就当 unknown
 		if i.Title == "" {
+			i.Action = ActionUnknown
+		}
+	}
+
+	// 邮件草稿的安全默认值
+	if i.Action == ActionDraftEmail {
+		// Mode 复用：preview=只看不存，apply=真的写入 ~/.local/share/deepin-agent/drafts/
+		if i.Mode == "" {
+			i.Mode = "preview"
+		}
+		// Subject/Purpose 至少要有一个，否则 unknown
+		if i.Subject == "" && i.Purpose == "" {
 			i.Action = ActionUnknown
 		}
 	}

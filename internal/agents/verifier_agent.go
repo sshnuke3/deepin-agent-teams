@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/sshnuke3/deepin-agent-teams/internal/tools"
 )
@@ -92,5 +93,37 @@ func (v *VerifierAgent) VerifyReminderReport(ctx context.Context, report *tools.
 		return &Verification{Passed: false, Reason: "apply 模式但 StoragePath 为空"}
 	}
 	ok, msg := tools.VerifyReminder(ctx, report.StoragePath, report.Title)
+	return &Verification{Passed: ok, Reason: msg}
+}
+
+// VerifyEmailReport 验证邮件草稿报告（v4 M2 新增）
+//
+// 检查项：
+//  1. preview 模式：subject 或 purpose 至少一个非空 + body 长度合理
+//  2. apply 模式：StoragePath 存在 + .eml 含 To/Subject 头部
+func (v *VerifierAgent) VerifyEmailReport(ctx context.Context, report *tools.EmailDraftReport) *Verification {
+	if report == nil {
+		return &Verification{Passed: false, Reason: "报告为空"}
+	}
+	if report.Subject == "" && report.Purpose == "" {
+		return &Verification{Passed: false, Reason: "subject 和 purpose 都为空"}
+	}
+	if len(strings.TrimSpace(report.Body)) == 0 {
+		return &Verification{Passed: false, Reason: "body 为空，Planner 未生成正文"}
+	}
+
+	// preview 模式：只校验报告自洽
+	if report.Mode != "apply" {
+		return &Verification{
+			Passed: true,
+			Reason: fmt.Sprintf("preview 报告自洽: 主题=%q, 正文长度=%d", report.Subject, len(report.Body)),
+		}
+	}
+
+	// apply 模式：实地验证 .eml 文件
+	if report.StoragePath == "" {
+		return &Verification{Passed: false, Reason: "apply 模式但 StoragePath 为空"}
+	}
+	ok, msg := tools.VerifyEmailDraft(ctx, report.StoragePath, report.Subject)
 	return &Verification{Passed: ok, Reason: msg}
 }

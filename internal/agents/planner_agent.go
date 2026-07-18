@@ -26,8 +26,8 @@ func NewPlannerAgent(cm model.ChatModel) *PlannerAgent {
 
 // OrganizePlan 文件整理的执行计划
 type OrganizePlan struct {
-	Directory string   `json:"directory"`
-	Mode      string   `json:"mode"` // "preview" | "apply"
+	Directory  string   `json:"directory"`
+	Mode       string   `json:"mode"`       // "preview" | "apply"
 	Categories []string `json:"categories"` // 要整理的分类，空 = 全部
 	Rationale  string   `json:"rationale"`  // LLM 解释为什么这样规划
 }
@@ -36,10 +36,23 @@ type OrganizePlan struct {
 //
 // Planner 负责把 Intent 里的"明天下午 3 点"翻译成 ISO8601 + 设定 priority + mode
 type ReminderPlan struct {
-	Title    string `json:"title"`
-	DueAt    string `json:"due_at"`    // 必须是 ISO8601 或可解析格式
-	Priority string `json:"priority"`  // low | normal | high
-	Mode     string `json:"mode"`      // preview | apply
+	Title     string `json:"title"`
+	DueAt     string `json:"due_at"`    // 必须是 ISO8601 或可解析格式
+	Priority  string `json:"priority"`  // low | normal | high
+	Mode      string `json:"mode"`      // preview | apply
+	Rationale string `json:"rationale"` // LLM 解释
+}
+
+// EmailPlan 邮件草稿的执行计划（v4 M2 新增）
+//
+// Planner 负责根据 Purpose 撰写邮件正文 + 选择 tone + 决定 mode
+type EmailPlan struct {
+	Recipient string `json:"recipient"` // 收件人邮箱（用户没填就空字符串）
+	Subject   string `json:"subject"`   // 主题
+	Purpose   string `json:"purpose"`   // 邮件目的（用户原始描述）
+	Body      string `json:"body"`      // Planner 生成的正文
+	Tone      string `json:"tone"`      // formal | casual | urgent
+	Mode      string `json:"mode"`      // preview | apply
 	Rationale string `json:"rationale"` // LLM 解释
 }
 
@@ -163,6 +176,77 @@ func (p *PlannerAgent) PlanReminder(ctx context.Context, userInput string, it *i
 		if plan.Priority == "" {
 			plan.Priority = "normal"
 		}
+	}
+	if plan.Mode == "" {
+		plan.Mode = it.Mode
+		if plan.Mode == "" {
+			plan.Mode = "preview"
+		}
+	}
+	return plan, nil
+}
+
+const emailPlannerPrompt = `你是 deepin-agent 的 Planner Agent，负责根据用户意图撰写邮件草稿。
+
+用户给出了邮件草稿意图，请你判断执行参数 + 撰写正文，只输出 JSON（不要 markdown）：
+
+格式：
+{
+  "recipient": "收件人邮箱（用户没填就空字符串）",
+  "subject": "邮件主题",
+  "purpose": "邮件目的（保留用户原始描述）",
+  "body": "你撰写的邮件正文（中文为主，正式得体）",
+  "tone": "formal | casual | urgent",
+  "mode": "preview 或 apply（默认 preview）",
+  "rationale": "你的判断理由（一句话）"
+}
+
+判断规则：
+1. 默认 mode="preview"（只看不存，安全第一）
+2. 只有用户明确说"保存""存为草稿""写下来"才用 mode="apply"
+3. tone: 默认 formal（商务/工作场景）；用户说"随便""轻松点" → casual；说"紧急""马上" → urgent
+4. body 必须有称呼 + 正文 + 落款（称呼"Hi <名>,"或"您好,"；落款"Best,\n龙虾"）
+5. 如果 subject 为空，根据 purpose 提炼一个简明主题
+6. rationale 用中文，简短说明
+
+只输出 JSON。`
+
+// PlanEmail 为邮件草稿生成执行计划
+func (p *PlannerAgent) PlanEmail(ctx context.Context, userInput string, it *intent.Intent) (*EmailPlan, error) {
+	userMsg := fmt.Sprintf("用户输入: %s\n识别意图: recipient=%s, subject=%s, purpose=%s, mode=%s",
+		userInput, it.Recipient, it.Subject, it.Purpose, it.Mode)
+
+	resp, err := p.chatModel.Generate(ctx, []*schema.Message{
+		{Role: schema.System, Content: emailPlannerPrompt},
+		{Role: schema.User, Content: userMsg},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("planner LLM call failed: %w", err)
+	}
+
+	plan := &EmailPlan{
+		Recipient: it.Recipient,
+		Subject:   it.Subject,
+		Purpose:   it.Purpose,
+		Tone:      "formal",
+		Mode:      it.Mode,
+	}
+	if err := jsonUnmarshal(resp.Content, plan); err != nil {
+		// 解析失败 → 用 Intent 默认值兜底（body 留空让用户在 preview 里看到）
+		return plan, nil
+	}
+	// 兜底逻辑
+	if plan.Recipient == "" {
+		plan.Recipient = it.Recipient
+	}
+	if plan.Subject == "" {
+		plan.Subject = it.Subject
+	}
+	if plan.Purpose == "" {
+		plan.Purpose = it.Purpose
+	}
+	if plan.Tone == "" {
+		plan.Tone = "formal"
 	}
 	if plan.Mode == "" {
 		plan.Mode = it.Mode

@@ -7,7 +7,7 @@
 
 - [x] **M1 骨架**（2026-07-16，commit `8cf8207`）—— Eino + ChatModel + Lambda Chain + 5/5 intent 全对
 - [x] **M2 文件整理 demo**（2026-07-17，commit `3348c49`）—— 三段 Chain + Verifier + 6/6 测试 PASS
-- [ ] **M2 续**：迁剩余 4 个 demo（日程提醒 / 邮件草稿 / 软件安装 / 系统设置），**优先级待主人决定**
+- [ ] **M2 续**：剩余 2 个 demo（软件安装 / 系统设置）
 - [ ] **M3 打磨**：多模型（豆包/DeepSeek/Ollama）+ MCP 协议 + DTK/DDE 真集成
 - [ ] **M4 Web UI**（v4.4）
 - [ ] **v5.0 自学习**（基于历史任务优化 Planner）
@@ -63,8 +63,8 @@ Formatted Output
 ## 待办（按优先级）
 
 ### 短期（M2 续）
-- [ ] **迁日程提醒 demo**：v3 的 SystemOperator 用 cron + 通知，v4 用 Agent + 后台 watcher
-- [ ] **迁邮件草稿 demo**：v3 用 deepin 邮件客户端，v4 用 SMTP mock
+- [x] **迁日程提醒 demo**（commit `e062e20`）：Planner 翻译自然语言时间 + 写 ~/.local/.../reminders/
+- [x] **迁邮件草稿 demo**（2026-07-18）：Planner 撰文 + 写 RFC822 `.eml` + Verifier 校验 `.eml` 头部
 - [ ] **迁软件安装 demo**：v3 用 apt + sudo，v4 用 package manager 抽象层
 - [ ] **迁系统设置 demo**：v3 用 DTK/DDE（已部分实现），v4 完善 D-Bus 真集成
 
