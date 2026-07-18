@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# pre-commit hook: 阻止 .env / key-like 内容进入 commit
+#
+# 2026-07-18 加入：主人担心 key 误提交
+# 触发场景：git add -f .env 绕过 .gitignore → commit 时本 hook 兜底
+#
+# 检查项：
+#  1. .env 文件不能出现在 staged 文件里
+#  2. staged 内容里不能匹配常见 key 模式（sk-gw-, sk-ant-, ghp_, AKIA 等）
+
+set -e
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+NC='\033[0m'
+
+# 1. 检查 .env 是否被 staged（即使 force add 也能拦住）
+if git diff --cached --name-only | grep -E '^\.env$|^\.env\.[^.]+$'; then
+  echo -e "${RED}❌ 拒绝 commit：检测到 .env 文件被 staged${NC}"
+  echo "   解法：git reset HEAD .env && git commit"
+  exit 1
+fi
+
+# 2. 扫描 staged 内容里的 key 模式
+#    匹配常见的 LLM/云服务 key 前缀
+KEY_PATTERN='(sk-(gw|ant|proj)-[A-Za-z0-9_-]{20,}|ghp_[A-Za-z0-9]{30,}|AKIA[0-9A-Z]{16}|xox[baprs]-[0-9a-zA-Z-]{10,})'
+
+if git diff --cached | grep -E "^\+.*${KEY_PATTERN}"; then
+  echo -e "${RED}❌ 拒绝 commit：检测到疑似 API key / token${NC}"
+  echo "   匹配规则: sk-gw-/sk-ant-/sk-proj-/ghp_/AKIA/xoxb-/xoxa-/xoxp-/xoxr-/xoxs-"
+  echo "   如果这是误报（文档里需要写示例 key），用 git commit --no-verify 跳过"
+  exit 1
+fi
+
+echo -e "${GREEN}✅ pre-commit 通过：无 key 风险${NC}"
+exit 0
