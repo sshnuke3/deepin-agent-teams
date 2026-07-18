@@ -46,9 +46,11 @@ type PipelineContext struct {
 	Plan           *agents.OrganizePlan
 	ReminderPlan   *agents.ReminderPlan
 	EmailPlan      *agents.EmailPlan
+	SettingsPlan   *agents.SettingsPlan
 	Report         *tools.OrganizeReport
 	ReminderReport *tools.ReminderReport
 	EmailReport    *tools.EmailDraftReport
+	SettingsReport *tools.SettingsReport
 	Verify         *agents.Verification
 }
 
@@ -88,8 +90,8 @@ func (o *Orchestrator) stagePlan(ctx context.Context, userInput string) (*Pipeli
 	}
 	pc.Intent = it
 
-	// 1b. 非文件整理/日程提醒/邮件草稿 → 走原 v3 路径（主题/系统信息）
-	if it.Action != intentpkg.ActionOrganizeFiles && it.Action != intentpkg.ActionScheduleReminder && it.Action != intentpkg.ActionDraftEmail {
+	// 1b. 非文件整理/日程提醒/邮件草稿/系统设置 → 走原 v3 路径（主题/系统信息）
+	if it.Action != intentpkg.ActionOrganizeFiles && it.Action != intentpkg.ActionScheduleReminder && it.Action != intentpkg.ActionDraftEmail && it.Action != intentpkg.ActionApplySettings {
 		return pc, nil
 	}
 
@@ -110,6 +112,26 @@ func (o *Orchestrator) stagePlan(ctx context.Context, userInput string) (*Pipeli
 			}
 		}
 		pc.EmailPlan = ep
+		return pc, nil
+	}
+
+	// 1f. 系统设置 → 调 Planner 提取 category + value
+	if it.Action == intentpkg.ActionApplySettings {
+		sp, err := o.planner.PlanSettings(ctx, userInput, it)
+		if err != nil {
+			// Planner 失败 → 用 Intent 默认值兜底
+			sp = &agents.SettingsPlan{
+				Changes: []tools.SettingChange{{
+					Category: it.SettingsCategory,
+					NewValue: it.SettingsValue,
+				}},
+				Mode: it.Mode,
+			}
+			if sp.Mode == "" {
+				sp.Mode = "preview"
+			}
+		}
+		pc.SettingsPlan = sp
 		return pc, nil
 	}
 
@@ -180,7 +202,7 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		return pc, nil
 	}
 
-	if pc.Intent.Action != intentpkg.ActionOrganizeFiles && pc.Intent.Action != intentpkg.ActionScheduleReminder && pc.Intent.Action != intentpkg.ActionDraftEmail {
+	if pc.Intent.Action != intentpkg.ActionOrganizeFiles && pc.Intent.Action != intentpkg.ActionScheduleReminder && pc.Intent.Action != intentpkg.ActionDraftEmail && pc.Intent.Action != intentpkg.ActionApplySettings {
 		pc.Report = &tools.OrganizeReport{
 			Mode:        "unknown",
 			VerifPassed: false,
@@ -201,6 +223,12 @@ func (o *Orchestrator) stageExecute(ctx context.Context, pc *PipelineContext) (*
 		return pc, nil
 	}
 
+	// 系统设置：调真实工具
+	if pc.Intent.Action == intentpkg.ActionApplySettings {
+		pc.SettingsReport = tools.ApplySettings(ctx, pc.SettingsPlan.Changes, pc.SettingsPlan.Mode)
+		return pc, nil
+	}
+
 	// 文件整理：调真实工具
 	pc.Report = tools.OrganizeFiles(ctx, pc.Plan.Directory, pc.Plan.Mode)
 	return pc, nil
@@ -213,6 +241,8 @@ func (o *Orchestrator) stageVerify(ctx context.Context, pc *PipelineContext) (*P
 		pc.Verify = o.verifier.VerifyReminderReport(ctx, pc.ReminderReport)
 	case intentpkg.ActionDraftEmail:
 		pc.Verify = o.verifier.VerifyEmailReport(ctx, pc.EmailReport)
+	case intentpkg.ActionApplySettings:
+		pc.Verify = o.verifier.VerifySettingsReport(ctx, pc.SettingsReport)
 	default:
 		pc.Verify = o.verifier.VerifyOrganizeReport(ctx, pc.Report)
 	}
@@ -240,6 +270,9 @@ func formatOutput(pc *PipelineContext) (string, error) {
 
 	case intentpkg.ActionDraftEmail:
 		return formatEmailOutput(pc), nil
+
+	case intentpkg.ActionApplySettings:
+		return formatSettingsOutput(pc), nil
 
 	default:
 		return "🤔 我没理解您的意思，请尝试：'整理 Downloads 文件' 或 '切到深色模式'", nil
@@ -361,6 +394,54 @@ func formatEmailOutput(pc *PipelineContext) string {
 		sb.WriteString("\n📝 **正文预览**:\n```\n")
 		sb.WriteString(er.Body)
 		sb.WriteString("\n```\n")
+	}
+
+	// 验证
+	sb.WriteString("\n**验证**:\n")
+	if pc.Verify.Passed {
+		sb.WriteString(fmt.Sprintf("  ✅ %s\n", pc.Verify.Reason))
+	} else {
+		sb.WriteString(fmt.Sprintf("  ❌ %s\n", pc.Verify.Reason))
+	}
+
+	return sb.String()
+}
+
+// formatSettingsOutput 格式化系统设置输出（v4 M2 新增）
+func formatSettingsOutput(pc *PipelineContext) string {
+	var sb strings.Builder
+	sp := pc.SettingsPlan
+	sr := pc.SettingsReport
+
+	if sp.Mode == "preview" {
+		sb.WriteString("⚙️ **系统设置预览**（未应用，加 --apply 才会真改）\n\n")
+	} else {
+		sb.WriteString("🚀 **系统设置已应用**\n\n")
+	}
+
+	if len(sr.Categories) > 0 {
+		sb.WriteString(fmt.Sprintf("📦 分类数: %d（%s）\n\n", len(sr.Categories), strings.Join(sr.Categories, ", ")))
+	} else {
+		sb.WriteString("📦 分类数: 0\n\n")
+	}
+
+	sb.WriteString("**变更明细**:\n")
+	for i, c := range sr.Changes {
+		icon := "📋"
+		if c.Status == "applied" {
+			icon = "✅"
+		} else if c.Status == "failed" {
+			icon = "❌"
+		}
+		sb.WriteString(fmt.Sprintf("  %s %d. [%s] %s = %s", icon, i+1, c.Category, c.Key, c.NewValue))
+		if c.Message != "" {
+			sb.WriteString(fmt.Sprintf(" — %s", c.Message))
+		}
+		sb.WriteString("\n")
+	}
+
+	if sp.Rationale != "" {
+		sb.WriteString(fmt.Sprintf("\n💡 判断: %s\n", sp.Rationale))
 	}
 
 	// 验证

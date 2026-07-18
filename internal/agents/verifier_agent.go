@@ -127,3 +127,37 @@ func (v *VerifierAgent) VerifyEmailReport(ctx context.Context, report *tools.Ema
 	ok, msg := tools.VerifyEmailDraft(ctx, report.StoragePath, report.Subject)
 	return &Verification{Passed: ok, Reason: msg}
 }
+
+// VerifySettingsReport 验证系统设置报告（v4 M2 新增）
+//
+// 检查项：
+//  1. preview 模式：至少一个 change + 校验都通过
+//  2. apply 模式：settings.json 存在 + 含本次所有变更的 (category, key, new_value)
+func (v *VerifierAgent) VerifySettingsReport(ctx context.Context, report *tools.SettingsReport) *Verification {
+	if report == nil {
+		return &Verification{Passed: false, Reason: "报告为空"}
+	}
+	if len(report.Changes) == 0 {
+		return &Verification{Passed: false, Reason: "changes 为空"}
+	}
+
+	// preview 模式：报告自洽检查（每项 status 应该是 planned）
+	if report.Mode != "apply" {
+		for _, c := range report.Changes {
+			if c.Status != "planned" {
+				return &Verification{
+					Passed: false,
+					Reason: fmt.Sprintf("preview 模式下 change[%s] status=%s（应为 planned）", c.Category, c.Status),
+				}
+			}
+		}
+		return &Verification{
+			Passed: true,
+			Reason: fmt.Sprintf("preview 报告自洽: %d 项设置", len(report.Changes)),
+		}
+	}
+
+	// apply 模式：实地验证
+	ok, msg := tools.VerifySettings(ctx, report.Changes)
+	return &Verification{Passed: ok, Reason: msg}
+}

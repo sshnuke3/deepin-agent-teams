@@ -19,7 +19,7 @@ import (
 	"github.com/sshnuke3/deepin-agent-teams/internal/orchestrator"
 )
 
-const version = "v4.0.0-m2.3"
+const version = "v4.0.0-m2.4"
 
 func main() {
 	var (
@@ -89,6 +89,10 @@ func runBuiltInDemo(ctx context.Context, orch *orchestrator.Orchestrator) {
 		"提醒我明天下午 3 点开会",
 		// 邮件草稿场景 (M2)
 		"帮 alice@example.com 起草一封项目进度同步邮件，主题：v4 M2 完成",
+		// 系统设置场景 (M2)
+		"帮我把音量调到 80",
+		"切到深色模式",
+		"关掉 WiFi",
 	}
 
 	fmt.Println()

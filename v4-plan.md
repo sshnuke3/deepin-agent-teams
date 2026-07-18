@@ -65,8 +65,8 @@ Formatted Output
 ### 短期（M2 续）
 - [x] **迁日程提醒 demo**（commit `e062e20`）：Planner 翻译自然语言时间 + 写 ~/.local/.../reminders/
 - [x] **迁邮件草稿 demo**（2026-07-18）：Planner 撰文 + 写 RFC822 `.eml` + Verifier 校验 `.eml` 头部
+- [x] **迁系统设置 demo**（2026-07-18）：theme/volume/brightness/network 4 类 + 写 ~/.local/.../settings.json + 4/4 测试
 - [ ] **迁软件安装 demo**：v3 用 apt + sudo，v4 用 package manager 抽象层
-- [ ] **迁系统设置 demo**：v3 用 DTK/DDE（已部分实现），v4 完善 D-Bus 真集成
 
 ### 中期（M3 打磨）
 - [ ] **多模型接入**：豆包 / DeepSeek / Ollama 至少 3 家

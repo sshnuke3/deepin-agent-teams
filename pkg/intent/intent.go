@@ -12,6 +12,7 @@ const (
 	ActionOrganizeFiles    = "organize_files"
 	ActionScheduleReminder = "schedule_reminder" // v4 M2: 日程提醒 demo
 	ActionDraftEmail       = "draft_email"       // v4 M2: 邮件草稿 demo
+	ActionApplySettings    = "apply_settings"    // v4 M2: 系统设置 demo
 	ActionUnknown          = "unknown"
 )
 
@@ -33,6 +34,14 @@ const (
 	ThemeAuto  = "deepin-auto"
 )
 
+// 系统设置分类枚举
+const (
+	SettingsCategoryTheme      = "theme"
+	SettingsCategoryVolume     = "volume"
+	SettingsCategoryBrightness = "brightness"
+	SettingsCategoryNetwork    = "network"
+)
+
 // Intent 是 LLM 返回的结构化意图
 type Intent struct {
 	Action string `json:"action"`
@@ -48,6 +57,9 @@ type Intent struct {
 	Recipient string `json:"recipient,omitempty"` // 收件人邮箱
 	Subject   string `json:"subject,omitempty"`   // 邮件主题
 	Purpose   string `json:"purpose,omitempty"`   // 邮件目的/要点（自然语言描述）
+	// 系统设置相关（v4 M2）
+	SettingsCategory string `json:"settings_category,omitempty"` // theme/volume/brightness/network
+	SettingsValue    string `json:"settings_value,omitempty"`    // 值（如 deepin-dark / 50 / on）
 }
 
 // Parse 从 LLM 返回的 JSON 字符串解析 Intent
@@ -63,7 +75,7 @@ func Parse(s string) (*Intent, error) {
 
 	// 校验
 	switch i.Action {
-	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionScheduleReminder, ActionDraftEmail, ActionUnknown:
+	case ActionChangeTheme, ActionGetSystemInfo, ActionOrganizeFiles, ActionScheduleReminder, ActionDraftEmail, ActionApplySettings, ActionUnknown:
 		// OK
 	default:
 		i.Action = ActionUnknown
@@ -102,6 +114,24 @@ func Parse(s string) (*Intent, error) {
 		}
 		// Subject/Purpose 至少要有一个，否则 unknown
 		if i.Subject == "" && i.Purpose == "" {
+			i.Action = ActionUnknown
+		}
+	}
+
+	// 系统设置的安全默认值
+	if i.Action == ActionApplySettings {
+		if i.Mode == "" {
+			i.Mode = "preview"
+		}
+		// category 必填
+		switch i.SettingsCategory {
+		case SettingsCategoryTheme, SettingsCategoryVolume, SettingsCategoryBrightness, SettingsCategoryNetwork:
+			// OK
+		default:
+			i.Action = ActionUnknown
+		}
+		// value 必填
+		if i.SettingsValue == "" {
 			i.Action = ActionUnknown
 		}
 	}

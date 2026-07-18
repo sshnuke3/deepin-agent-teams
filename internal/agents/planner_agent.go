@@ -8,6 +8,7 @@ import (
 	"github.com/cloudwego/eino/schema"
 
 	"github.com/sshnuke3/deepin-agent-teams/internal/model"
+	"github.com/sshnuke3/deepin-agent-teams/internal/tools"
 	"github.com/sshnuke3/deepin-agent-teams/pkg/intent"
 )
 
@@ -54,6 +55,15 @@ type EmailPlan struct {
 	Tone      string `json:"tone"`      // formal | casual | urgent
 	Mode      string `json:"mode"`      // preview | apply
 	Rationale string `json:"rationale"` // LLM 解释
+}
+
+// SettingsPlan 系统设置的执行计划（v4 M2 新增）
+//
+// Planner 负责根据用户口语化描述提取 category + value
+type SettingsPlan struct {
+	Changes   []tools.SettingChange `json:"changes"`   // Planner 生成的变更列表
+	Mode      string                `json:"mode"`      // preview | apply
+	Rationale string                `json:"rationale"` // LLM 解释
 }
 
 const plannerSystemPrompt = `你是 deepin-agent 的 Planner Agent。
@@ -253,6 +263,72 @@ func (p *PlannerAgent) PlanEmail(ctx context.Context, userInput string, it *inte
 		if plan.Mode == "" {
 			plan.Mode = "preview"
 		}
+	}
+	return plan, nil
+}
+
+const settingsPlannerPrompt = `你是 deepin-agent 的 Planner Agent，负责根据用户口语化描述生成系统设置变更。
+
+用户说了设置需求，请你提取 category + value，输出 JSON：
+
+格式：
+{
+  "changes": [
+    {"category": "theme|volume|brightness|network", "new_value": "对应值"}
+  ],
+  "mode": "preview 或 apply（默认 preview）",
+  "rationale": "你的判断理由（一句话）"
+}
+
+判断规则：
+1. 默认 mode="preview"（只看不改，安全第一）
+2. 用户明确说"设置""改成""调""真的改" → mode="apply"
+3. category 映射：
+   - 主题/色系 → "theme"，new_value: "deepin-dark"（暗/黑/深）或 "deepin-light"（浅/亮/白）或 "deepin-auto"（自动/跟随）
+   - 音量/声音大小 → "volume"，new_value: 0-100 的数字
+   - 亮度/背光 → "brightness"，new_value: 0-100 的数字
+   - 网络/WiFi → "network"，new_value: "on"（开）或 "off"（关）
+4. 数字必须字符串化（"50" 不是 50）
+5. rationale 用中文，简短说明
+
+只输出 JSON。`
+
+// PlanSettings 为系统设置生成执行计划
+func (p *PlannerAgent) PlanSettings(ctx context.Context, userInput string, it *intent.Intent) (*SettingsPlan, error) {
+	userMsg := fmt.Sprintf("用户输入: %s\n识别意图: category=%s, value=%s, mode=%s",
+		userInput, it.SettingsCategory, it.SettingsValue, it.Mode)
+
+	resp, err := p.chatModel.Generate(ctx, []*schema.Message{
+		{Role: schema.System, Content: settingsPlannerPrompt},
+		{Role: schema.User, Content: userMsg},
+	})
+	if err != nil {
+		return nil, fmt.Errorf("planner LLM call failed: %w", err)
+	}
+
+	plan := &SettingsPlan{
+		Mode: it.Mode,
+	}
+	if it.Mode == "" {
+		plan.Mode = "preview"
+	}
+
+	// 解析 LLM 返回
+	if err := jsonUnmarshal(resp.Content, plan); err != nil {
+		// 解析失败 → 用 Intent 默认值兜底（生成单个 change）
+		plan.Changes = []tools.SettingChange{{
+			Category: it.SettingsCategory,
+			NewValue: it.SettingsValue,
+		}}
+		return plan, nil
+	}
+
+	// 兜底：如果 Planner 没生成 changes，用 Intent 的字段造一个
+	if len(plan.Changes) == 0 {
+		plan.Changes = []tools.SettingChange{{
+			Category: it.SettingsCategory,
+			NewValue: it.SettingsValue,
+		}}
 	}
 	return plan, nil
 }
