@@ -7,7 +7,8 @@
 
 - [x] **M1 骨架**（2026-07-16，commit `8cf8207`）—— Eino + ChatModel + Lambda Chain + 5/5 intent 全对
 - [x] **M2 文件整理 demo**（2026-07-17，commit `3348c49`）—— 三段 Chain + Verifier + 6/6 测试 PASS
-- [ ] **M2 续**：剩余 2 个 demo（软件安装 / 系统设置）
+- [x] **M2 系统设置 demo**（2026-07-18）—— theme/volume/brightness/network 4 类 + 写 settings.json + 4/4 测试 PASS
+- [x] **M2 全部完成**：4 demo（文件整理/日程提醒/邮件草稿/系统设置）。软件安装 demo 取消（deepin 25 走 linglong/ll-cli，不是 apt，迁跨动太大）
 - [ ] **M3 打磨**：多模型（豆包/DeepSeek/Ollama）+ MCP 协议 + DTK/DDE 真集成
 - [ ] **M4 Web UI**（v4.4）
 - [ ] **v5.0 自学习**（基于历史任务优化 Planner）
@@ -66,7 +67,7 @@ Formatted Output
 - [x] **迁日程提醒 demo**（commit `e062e20`）：Planner 翻译自然语言时间 + 写 ~/.local/.../reminders/
 - [x] **迁邮件草稿 demo**（2026-07-18）：Planner 撰文 + 写 RFC822 `.eml` + Verifier 校验 `.eml` 头部
 - [x] **迁系统设置 demo**（2026-07-18）：theme/volume/brightness/network 4 类 + 写 ~/.local/.../settings.json + 4/4 测试
-- [ ] **迁软件安装 demo**：v3 用 apt + sudo，v4 用 package manager 抽象层
+- [x] **跳过软件安装 demo**：deepin 25 走 linglong/ll-cli，不迁 apt。代之以 M3 真 D-Bus 集成
 
 ### 中期（M3 打磨）
 - [ ] **多模型接入**：豆包 / DeepSeek / Ollama 至少 3 家
@@ -84,7 +85,7 @@ Formatted Output
 
 1. **状态机范式**：Eino Lambda Chain（不用 Graph，90% 场景够用）
 2. **安全阀**：文件整理默认 preview，--apply 才真移
-3. **路径**：v4 代码在 `/root/.openclaw/workspace/deepin-agent-teames/`，**不在** `deepin-agent-v4/`
+3. **路径**：v4 代码在 `/root/.openclaw/workspace/deepin-agent-teams/`，**不在** `deepin-agent-v4/`
 4. **Token 存储**：GitHub PAT 持久化（~/.git-credentials chmod 600），LLM key 不持久化
 5. **git push 方式**：直接 push，不用 Git Data API
 
