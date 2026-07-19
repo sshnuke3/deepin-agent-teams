@@ -87,8 +87,8 @@ func ApplySettings(ctx context.Context, changes []SettingChange, mode string) *S
 			continue
 		}
 
-		// apply 模式：真"调工具"（mock）
-		if err := applyChange(c); err != nil {
+		// apply 模式：真接 D-Bus（或 mock fallback）
+		if err := applyChange(ctx, c); err != nil {
 			c.Status = "failed"
 			c.Message = err.Error()
 			report.Changes = append(report.Changes, *c)
@@ -97,8 +97,14 @@ func ApplySettings(ctx context.Context, changes []SettingChange, mode string) *S
 			return report
 		}
 
+		modeNote := ""
+		if IsMockMode() {
+			modeNote = "（演示模式）"
+		} else {
+			modeNote = "（D-Bus 真调用）"
+		}
 		c.Status = "applied"
-		c.Message = fmt.Sprintf("已应用 %s.%s = %s（mock D-Bus 调用）", c.Category, c.Key, c.NewValue)
+		c.Message = fmt.Sprintf("已应用 %s.%s = %s%s", c.Category, c.Key, c.NewValue, modeNote)
 		report.Changes = append(report.Changes, *c)
 		categoriesSet[c.Category] = true
 	}
@@ -175,15 +181,70 @@ func validateChange(c *SettingChange) error {
 	}
 }
 
-// applyChange 真应用（mock 实现）
-func applyChange(c *SettingChange) error {
-	// v4 M3 替换成真 D-Bus 调用：
-	//   theme:      com.deepin.daemon.Appearance.SetGtkTheme
-	//   volume:     com.deepin.daemon.Audio.SinkSetVolume
-	//   brightness: com.deepin.daemon.Power.SetScreenBrightness
-	//   network:    com.deepin.daemon.Network.Enable/DisableWifi
-	time.Sleep(10 * time.Millisecond) // 模拟 D-Bus 调用耗时
-	return nil
+// applyChange 真应用（v4 M3：真接 D-Bus）
+//
+// 按 category 调用对应 D-Bus 方法：
+//   - theme:      com.deepin.daemon.Appearance.SetGtkTheme (string)
+//   - volume:     com.deepin.daemon.Audio.SinkSetVolume (double 0.0-1.0)
+//   - brightness: com.deepin.daemon.Display.Brightness.SetBrightness (double 0.0-1.0)
+//   - network:    com.deepin.daemon.Network.EnableWifi / DisableWifi
+//
+// mock 模式（DEEPIN_DBUS=mock）：跳过 D-Bus，直接成功（返回 nil）。
+func applyChange(ctx context.Context, c *SettingChange) error {
+	if IsMockMode() {
+		// mock 模式：不做 D-Bus 调用，假装成功
+		return nil
+	}
+
+	switch c.Category {
+	case CategoryTheme:
+		_, err := dbusCall(ctx,
+			"com.deepin.daemon.Appearance",
+			"/com/deepin/daemon/Appearance",
+			"com.deepin.daemon.Appearance.SetGtkTheme",
+			c.NewValue,
+		)
+		return err
+
+	case CategoryVolume:
+		// 0-100 → 0.0-1.0
+		v, _ := strconv.Atoi(c.NewValue)
+		ratio := float64(v) / 100.0
+		_, err := dbusCall(ctx,
+			"com.deepin.daemon.Audio",
+			"/com/deepin/daemon/Audio",
+			"com.deepin.daemon.Audio.SinkSetVolume",
+			fmt.Sprintf("%f", ratio),
+		)
+		return err
+
+	case CategoryBrightness:
+		// 0-100 → 0.0-1.0
+		v, _ := strconv.Atoi(c.NewValue)
+		ratio := float64(v) / 100.0
+		_, err := dbusCall(ctx,
+			"com.deepin.daemon.Display",
+			"/com/deepin/daemon/Display",
+			"com.deepin.daemon.Display.Brightness.SetBrightness",
+			fmt.Sprintf("%f", ratio),
+		)
+		return err
+
+	case CategoryNetwork:
+		method := "com.deepin.daemon.Network.EnableWifi"
+		if c.NewValue == "false" {
+			method = "com.deepin.daemon.Network.DisableWifi"
+		}
+		_, err := dbusCall(ctx,
+			"com.deepin.daemon.Network",
+			"/com/deepin/daemon/Network",
+			method,
+		)
+		return err
+
+	default:
+		return fmt.Errorf("未实现 category: %s", c.Category)
+	}
 }
 
 // saveSettings 把变更列表写到 ~/.local/share/deepin-agent/settings.json

@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
@@ -141,6 +142,10 @@ func TestApplySettings_Apply(t *testing.T) {
 	tmpHome := t.TempDir()
 	os.Setenv("HOME", tmpHome)
 
+	// 这个测试原本是 mock 路径验证（v4 M2 时代代码里就是 mock）
+	// v4 M3 改了 applyChange 真接 D-Bus；这里显式设 mock 以保留原测试意图
+	t.Setenv("DEEPIN_DBUS", "mock")
+
 	changes := []SettingChange{
 		{Category: CategoryTheme, NewValue: "deepin-light"},
 		{Category: CategoryBrightness, NewValue: "60"},
@@ -205,5 +210,261 @@ func TestNormalizeSettingInput(t *testing.T) {
 		if got != tt.want {
 			t.Errorf("NormalizeSettingInput(%q): got %q, want %q", tt.raw, got, tt.want)
 		}
+	}
+}
+
+// === applyChange 真 D-Bus 路径测试 (v4 M3) ===
+
+func TestApplyChange_Theme_RealDBus_CallsSetGtkTheme(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: CategoryTheme, Key: "gtk_theme", NewValue: "deepin-dark"}
+	if err := applyChange(context.Background(), c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected 1 gdbus call, got %d", len(fake.calls))
+	}
+	call := fake.calls[0]
+	// 验证调到了 SetGtkTheme
+	hasSetGtkTheme := false
+	for _, a := range call.args {
+		if a == "com.deepin.daemon.Appearance.SetGtkTheme" {
+			hasSetGtkTheme = true
+		}
+	}
+	if !hasSetGtkTheme {
+		t.Errorf("should call Appearance.SetGtkTheme, got args: %v", call.args)
+	}
+	// 验证参数是 deepin-dark
+	hasValue := false
+	for _, a := range call.args {
+		if a == "deepin-dark" {
+			hasValue = true
+		}
+	}
+	if !hasValue {
+		t.Errorf("should pass 'deepin-dark' as arg, got: %v", call.args)
+	}
+}
+
+func TestApplyChange_Volume_RealDBus_ConvertsToRatio(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: CategoryVolume, Key: "volume_level", NewValue: "50"}
+	if err := applyChange(context.Background(), c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(fake.calls) != 1 {
+		t.Fatalf("expected 1 gdbus call, got %d", len(fake.calls))
+	}
+	// 50% → 0.500000
+	hasRatio := false
+	for _, a := range fake.calls[0].args {
+		if a == "0.500000" {
+			hasRatio = true
+		}
+	}
+	if !hasRatio {
+		t.Errorf("volume 50 should convert to 0.500000, got args: %v", fake.calls[0].args)
+	}
+}
+
+func TestApplyChange_Volume_EdgeValues(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	// 0 → 0.000000
+	c := &SettingChange{Category: CategoryVolume, Key: "volume_level", NewValue: "0"}
+	_ = applyChange(context.Background(), c)
+	hasZero := false
+	for _, a := range fake.calls[0].args {
+		if a == "0.000000" {
+			hasZero = true
+		}
+	}
+	if !hasZero {
+		t.Errorf("volume 0 should convert to 0.000000, got: %v", fake.calls[0].args)
+	}
+
+	// 100 → 1.000000
+	fake.calls = nil
+	c2 := &SettingChange{Category: CategoryVolume, Key: "volume_level", NewValue: "100"}
+	_ = applyChange(context.Background(), c2)
+	hasOne := false
+	for _, a := range fake.calls[0].args {
+		if a == "1.000000" {
+			hasOne = true
+		}
+	}
+	if !hasOne {
+		t.Errorf("volume 100 should convert to 1.000000, got: %v", fake.calls[0].args)
+	}
+}
+
+func TestApplyChange_Brightness_RealDBus_ConvertsToRatio(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: CategoryBrightness, Key: "brightness_level", NewValue: "80"}
+	if err := applyChange(context.Background(), c); err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	hasMethod := false
+	hasRatio := false
+	for _, a := range fake.calls[0].args {
+		if a == "com.deepin.daemon.Display.Brightness.SetBrightness" {
+			hasMethod = true
+		}
+		if a == "0.800000" {
+			hasRatio = true
+		}
+	}
+	if !hasMethod {
+		t.Errorf("should call Display.Brightness.SetBrightness, got: %v", fake.calls[0].args)
+	}
+	if !hasRatio {
+		t.Errorf("brightness 80 should convert to 0.800000, got: %v", fake.calls[0].args)
+	}
+}
+
+func TestApplyChange_Network_RealDBus_ChoosesCorrectMethod(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	// on → EnableWifi
+	c := &SettingChange{Category: CategoryNetwork, Key: "wifi_enabled", NewValue: "true"}
+	_ = applyChange(context.Background(), c)
+	hasEnable := false
+	for _, a := range fake.calls[0].args {
+		if a == "com.deepin.daemon.Network.EnableWifi" {
+			hasEnable = true
+		}
+	}
+	if !hasEnable {
+		t.Errorf("network on should call EnableWifi, got: %v", fake.calls[0].args)
+	}
+
+	// off → DisableWifi
+	fake.calls = nil
+	c2 := &SettingChange{Category: CategoryNetwork, Key: "wifi_enabled", NewValue: "false"}
+	_ = applyChange(context.Background(), c2)
+	hasDisable := false
+	for _, a := range fake.calls[0].args {
+		if a == "com.deepin.daemon.Network.DisableWifi" {
+			hasDisable = true
+		}
+	}
+	if !hasDisable {
+		t.Errorf("network off should call DisableWifi, got: %v", fake.calls[0].args)
+	}
+}
+
+func TestApplyChange_UnknownCategory_ReturnsError(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: "invalid", NewValue: "x"}
+	err := applyChange(context.Background(), c)
+	if err == nil {
+		t.Error("unknown category should return error")
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("unknown category should not invoke gdbus, got %d calls", len(fake.calls))
+	}
+}
+
+func TestApplyChange_DBusError_Propagates(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{err: errors.New("connection refused")}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: CategoryTheme, Key: "gtk_theme", NewValue: "deepin-dark"}
+	err := applyChange(context.Background(), c)
+	if err == nil {
+		t.Fatal("expected error when gdbus fails")
+	}
+}
+
+func TestApplyChange_MockMode_SkipsDBus(t *testing.T) {
+	t.Setenv("DEEPIN_DBUS", "mock")
+	fake := &fakeExecutor{stdout: "(ignored)"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	c := &SettingChange{Category: CategoryTheme, Key: "gtk_theme", NewValue: "deepin-light"}
+	if err := applyChange(context.Background(), c); err != nil {
+		t.Errorf("mock mode should not error, got %v", err)
+	}
+	if len(fake.calls) != 0 {
+		t.Errorf("mock mode should not invoke gdbus, got %d calls", len(fake.calls))
+	}
+}
+
+func TestApplySettings_Apply_RealDBus_ShowsModeNote(t *testing.T) {
+	// 验证 apply 模式的输出信息里包含 "(D-Bus 真调用)" 或 "(演示模式)" 之一
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{stdout: "()"}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	// 临时重设 HOME 防止写盘污染真机
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	changes := []SettingChange{
+		{Category: CategoryTheme, Key: "gtk_theme", NewValue: "deepin-dark"},
+	}
+	report := ApplySettings(context.Background(), changes, "apply")
+	if !report.VerifPassed {
+		t.Errorf("expected success, got %+v", report)
+	}
+	foundNote := false
+	for _, c := range report.Changes {
+		if strings.Contains(c.Message, "D-Bus 真调用") || strings.Contains(c.Message, "演示模式") {
+			foundNote = true
+		}
+	}
+	if !foundNote {
+		t.Errorf("apply result should mention mode (D-Bus/演示), got: %+v", report.Changes)
+	}
+}
+
+func TestApplySettings_Apply_RealDBus_HandlesGdbusFailure(t *testing.T) {
+	// gdbus 失败时，整条 chain 应该 fail（不让 settings.json 写入无效状态）
+	t.Setenv("DEEPIN_DBUS", "")
+	fake := &fakeExecutor{err: errors.New("dde-session not running")}
+	SetExecutor(fake)
+	defer ResetExecutor()
+
+	tmpHome := t.TempDir()
+	t.Setenv("HOME", tmpHome)
+
+	changes := []SettingChange{
+		{Category: CategoryTheme, Key: "gtk_theme", NewValue: "deepin-dark"},
+	}
+	report := ApplySettings(context.Background(), changes, "apply")
+	if report.VerifPassed {
+		t.Error("expected failure when gdbus errors")
+	}
+	// 失败时不应该写盘
+	settingsPath := filepath.Join(tmpHome, ".local", "share", "deepin-agent", "settings.json")
+	if _, err := os.Stat(settingsPath); err == nil {
+		t.Error("settings.json should NOT be written when apply fails")
 	}
 }

@@ -9,9 +9,63 @@
 - [x] **M2 文件整理 demo**（2026-07-17，commit `3348c49`）—— 三段 Chain + Verifier + 6/6 测试 PASS
 - [x] **M2 系统设置 demo**（2026-07-18）—— theme/volume/brightness/network 4 类 + 写 settings.json + 4/4 测试 PASS
 - [x] **M2 全部完成**：4 demo（文件整理/日程提醒/邮件草稿/系统设置）。软件安装 demo 取消（deepin 25 走 linglong/ll-cli，不是 apt，迁跨动太大）
-- [ ] **M3 打磨**：多模型（豆包/DeepSeek/Ollama）+ MCP 协议 + DTK/DDE 真集成
+- [x] **M3-测试全覆盖**（2026-07-19，commit `e9646c3`）—— 补完所有包测试，从 0 测试文件 到 112/112 全过（包含 1 补完原本 M1 commit message 谎称的 5/5 tests）
+- [x] **M3-多意图**（2026-07-19，commit `5ea9833`）—— ParseMulti + RecognizeMulti + RunMulti，一句话多个独立动作 + 25 个新测试，137/137 全过
+- [x] **M3-DTK/DDE 真集成**（2026-07-19，commit `20798c1`）—— appearance.go 改成真接 D-Bus（gdbus）+ CommandExecutor 可注入 + mock fallback (DEEPIN_DBUS=mock)；GetSystemInfo 读真 /etc/os-release
+- [x] **M3-settings 全真集成**（2026-07-19，commit `pending`）—— settings.go apply 改为 4 类全走 dbusCall（theme/volume/brightness/network），161→171 测试
 - [ ] **M4 Web UI**（v4.4）
 - [ ] **v5.0 自学习**（基于历史任务优化 Planner）
+
+## M3 D-Bus 真集成 详情
+
+### 设计
+
+- `internal/tools/dbus.go`（新增）：gdbus 通用包装
+  - `CommandExecutor` interface（可注入，默认 realExecutor）
+  - `dbusCall(dest, path, method, args...)`：session bus
+  - `dbusCallSystem`：system bus
+  - 三种模式：auto / mock / real（环境变量 `DEEPIN_DBUS=mock` 走 mock）
+- `internal/tools/appearance.go`（重写）：
+  - `ChangeTheme` → `Appearance.SetCurrentTheme` + `SetGtkTheme`
+  - `GetCurrentTheme` → `Appearance.GetCurrentTheme`
+  - `GetSystemInfo` 读真 `/etc/os-release`（不再硬编码 "deepin 25"）
+- `internal/tools/settings.go`（补完）：
+  - `applyChange(ctx, c)` 改为 `dbusCall` 真调用
+    - theme → `Appearance.SetGtkTheme`
+    - volume → `Audio.SinkSetVolume`（0-100 → 0.0-1.0）
+    - brightness → `Display.Brightness.SetBrightness`（0-100 → 0.0-1.0）
+    - network → `Network.EnableWifi/DisableWifi`
+
+### 验证
+
+| 项 | 结果 |
+|---|------|
+| go build ./... | ✅ |
+| go vet ./... | ✅ |
+| go test ./... | ✅ **171/171**（+59 从 M2 收尾） |
+| 本机 Ubuntu 24.04 跑 | ✅ GetSystemInfo 读到 "系统: Ubuntu 24.04.4 LTS" |
+| 真 deepin 25 上跑 | ⚠️ 未验证（主人无环境） |
+
+### 后续 / 补充
+
+- **需要真 deepin 25** 验证 4 个 category 都调得通 gdbus（可能 D-Bus 接口名在 deepin 23 vs 25 间有变）
+- 主人手上有 deepin 25 VM/实机时，跑 `go test -tags integration ./...` 或直接 `deepin-agent chat "音量调到 50" --apply` 验证
+
+## M3 多意图 详情
+
+### 改动
+
+- `pkg/intent/intent.go`：新增 `ParseMulti()`，支持 JSON array 和 `{"intents":[...]}` 包装形式
+- `internal/agents/intent_agent.go`：新增 `RecognizeMulti()`，多意图 system prompt（含 few-shot 示例）
+- `internal/orchestrator/orchestrator.go`：新增 `RunMulti()`，复用 `runSingle` + `populatePlan`
+  - 过滤 `ActionUnknown`（但至少保留 1 个）
+  - 多 chain 输出用 `\n\n---\n\n` 分隔
+  - `New` 改成接 `agents.ChatModel` interface（main.go 兼容）
+
+### 用例
+
+输入："切到深色模式 + 音量调到 30 + 提醒我明早 9 点开会"
+→ 3 个 chain 并行：theme + volume + reminder，各自走 Planner→Executor→Verifier
 
 ## M2 文件整理 demo 详情
 
