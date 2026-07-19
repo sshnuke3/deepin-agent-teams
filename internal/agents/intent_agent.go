@@ -7,17 +7,16 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/sshnuke3/deepin-agent-teams/internal/model"
 	"github.com/sshnuke3/deepin-agent-teams/pkg/intent"
 )
 
 // IntentAgent 负责意图识别
 type IntentAgent struct {
-	chatModel model.ChatModel
+	chatModel ChatModel
 }
 
 // NewIntentAgent 创建意图识别 Agent
-func NewIntentAgent(cm model.ChatModel) *IntentAgent {
+func NewIntentAgent(cm ChatModel) *IntentAgent {
 	return &IntentAgent{chatModel: cm}
 }
 

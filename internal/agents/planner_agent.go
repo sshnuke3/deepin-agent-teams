@@ -7,7 +7,6 @@ import (
 
 	"github.com/cloudwego/eino/schema"
 
-	"github.com/sshnuke3/deepin-agent-teams/internal/model"
 	"github.com/sshnuke3/deepin-agent-teams/internal/tools"
 	"github.com/sshnuke3/deepin-agent-teams/pkg/intent"
 )
@@ -17,11 +16,11 @@ import (
 // v4 M2 新增：v3 状态机的"Planner"角色
 // 职责：拿到 Intent 后，结合用户上下文，生成执行计划
 type PlannerAgent struct {
-	chatModel model.ChatModel
+	chatModel ChatModel
 }
 
 // NewPlannerAgent 创建 Planner
-func NewPlannerAgent(cm model.ChatModel) *PlannerAgent {
+func NewPlannerAgent(cm ChatModel) *PlannerAgent {
 	return &PlannerAgent{chatModel: cm}
 }
 
