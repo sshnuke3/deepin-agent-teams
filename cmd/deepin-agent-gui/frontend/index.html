@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8"/>
+    <meta content="width=device-width, initial-scale=1.0" name="viewport"/>
+    <title>deepin Agent Teams</title>
+</head>
+<body>
+<div id="app">
+    <header class="header">
+        <div class="header-left">
+            <span class="logo">🦞</span>
+            <span class="title">deepin Agent Teams</span>
+        </div>
+        <div class="status" id="status">初始化中...</div>
+    </header>
+
+    <main class="chat-container" id="chat">
+        <div class="message system">
+            <div class="bubble">
+                👋 你好主人！我可以帮你：
+                <ul>
+                    <li>📁 整理文件（"整理 ~/Downloads"）</li>
+                    <li>📅 提醒日程（"明早 9 点开会"）</li>
+                    <li>📧 起草邮件（"帮 Alice 写项目进度邮件"）</li>
+                    <li>⚙️ 系统设置（"切深色 + 音量 30"）</li>
+                    <li>🔍 看系统信息</li>
+                </ul>
+                支持一句话多意图，试试 "切深色 + 音量 30 + 提醒明早开会"
+            </div>
+        </div>
+    </main>
+
+    <footer class="input-area">
+        <textarea
+            id="input"
+            class="input"
+            placeholder="输入指令，按 Enter 发送，Shift+Enter 换行"
+            rows="2"
+        ></textarea>
+        <button class="btn-send" id="send">发送</button>
+    </footer>
+</div>
+<script src="./src/main.js" type="module"></script>
+</body>
+</html>

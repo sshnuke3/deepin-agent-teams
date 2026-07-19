@@ -5,6 +5,63 @@
 
 ---
 
+## GUI 测试（Wails v2.13）
+
+v4 M3 阶段交付了一个 Wails 图形界面。
+
+### 装依赖
+
+```bash
+# 装 libwebkit2gtk-4.1-dev（Ubuntu 24.04 / deepin 25）
+sudo apt install -y libwebkit2gtk-4.1-dev libgtk-3-dev
+
+# 装 Wails CLI
+go install github.com/wailsapp/wails/v2/cmd/wails@latest
+export PATH=$PATH:$(go env GOPATH)/bin
+```
+
+### 构建
+
+```bash
+cd cmd/deepin-agent-gui/
+# 必须加 -tags webkit2_41（Wails 默认 4.0 tag 在装 4.1 的系统上会报 Package not found）
+wails build -tags webkit2_41
+# 产物：build/bin/deepin-agent-gui（~20MB）
+```
+
+### 运行
+
+```bash
+# 设置 LLM key（任一）
+export QWEN_API_KEY=sk-...
+
+# Ubuntu 上跑（mock 模式，避免调 D-Bus）
+DEEPIN_DBUS=mock ./build/bin/deepin-agent-gui
+
+# deepin 25 上跑（真 D-Bus 调主题/音量/亮度）
+./build/bin/deepin-agent-gui
+```
+
+### 验证清单
+
+- [ ] 窗口出现，header 显示「🦞 deepin Agent Teams」
+- [ ] 输入框输入"切到深色模式"，点发送
+- [ ] 显示用户消息气泡（蓝色）
+- [ ] 显示 assistant 回复气泡（灰色）
+- [ ] reply 含主题切换预览（不开 apply 模式）
+- [ ] 在 deepin 25 上，点发送后系统主题真切换
+- [ ] 输入"切深色 + 音量 30 + 提醒明早开会"，多意图用 --- 分隔
+
+### 当前限制
+
+- GUI 不支持 --apply（预览模式，真改走 CLI）
+- 没悬浮球/系统托盘（v3 PyQt5 特性，v4 M3 暂不做）
+- 没剪贴板/窗口感知（v3 perception/ 模块，v4 未继承）
+
+---
+
+---
+
 ## 0. 前置检查
 
 ```bash

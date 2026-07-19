@@ -1,0 +1,17 @@
+# Wails build 输出（不在仓库）
+build/bin/
+
+# 前端依赖和构建产物
+node_modules/
+frontend/node_modules/
+frontend/dist/
+
+# Windows / Mac 构建产物（只关心 Linux）
+build/windows/
+build/darwin/
+
+# 字体文件（用系统字体，可删）
+frontend/src/assets/fonts/
+
+# MD5 缓存
+frontend/package.json.md5

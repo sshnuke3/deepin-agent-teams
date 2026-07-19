@@ -1,0 +1,21 @@
+{
+  "$schema": "https://wails.io/schemas/config.v2.json",
+  "name": "deepin-agent-gui",
+  "outputfilename": "deepin-agent-gui",
+  "frontend:install": "npm install",
+  "frontend:build": "npm run build",
+  "frontend:dev:watcher": "npm run dev",
+  "frontend:dev:serverUrl": "auto",
+  "author": {
+    "name": "lobster_assistant",
+    "email": "mudbuilder@gmail.com"
+  },
+  "info": {
+    "productName": "deepin Agent Teams",
+    "productVersion": "v4.0.0-m3.0",
+    "comments": "GUI for deepin-agent-teams v4. Wails + Go + HTML/CSS/JS."
+  },
+  "build": {
+    "tags": "webkit2_41"
+  }
+}
