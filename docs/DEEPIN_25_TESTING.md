@@ -302,9 +302,9 @@ DEEPIN_DBUS=mock ./deepin-agent chat "切到深色模式" --apply
 
 ---
 
-## 7. 完整 demo 脚本（答辩用）
+## 7. 完整 demo 脚本（手动测试用）
 
-如果要给评委演示，按这个顺序：
+按这个顺序跑一遍，验证所有功能能跑通：
 
 ```bash
 # === 准备 ===
@@ -359,8 +359,8 @@ echo "=== 演示结束 ==="
 2. **完整 stderr 输出**
 3. **`gdbus introspect` 输出**（如果怀疑方法名问题）
 
-给开发者（v4 M3 代码作者：sshnuke3 / 龙虾）。
+到仓库 issue 或 PR。
 
 ---
 
-*最后更新：2026-07-19 v4-redesign@48f1f1a*
+*最后更新：2026-07-19 v4-redesign@38e14d3*
