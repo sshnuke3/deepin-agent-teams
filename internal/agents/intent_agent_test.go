@@ -211,3 +211,108 @@ func TestIntentAgent_Recognize_ReminderMissingTitleMapsToUnknown(t *testing.T) {
 		t.Errorf("reminder without title should map to unknown, got %q", got.Action)
 	}
 }
+
+// === RecognizeMulti 测试 (v4 M3 多意图) ===
+
+func TestIntentAgent_RecognizeMulti_SingleIntentFromLLM(t *testing.T) {
+	// LLM 返回单 intent（单需求场景），ParseMulti 包装为 [it]
+	f := &fakeChatModel{response: `{"action":"get_system_info"}`}
+	a := NewIntentAgent(f)
+	got, err := a.RecognizeMulti(context.Background(), "看下系统信息")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 intent, got %d", len(got))
+	}
+	if got[0].Action != intent.ActionGetSystemInfo {
+		t.Errorf("got action %q want %q", got[0].Action, intent.ActionGetSystemInfo)
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_ArrayOfTwo(t *testing.T) {
+	f := &fakeChatModel{
+		response: `[{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark","mode":"preview"},{"action":"apply_settings","settings_category":"volume","settings_value":"30","mode":"preview"}]`,
+	}
+	a := NewIntentAgent(f)
+	got, err := a.RecognizeMulti(context.Background(), "切深色 + 音量调到 30")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 intents, got %d", len(got))
+	}
+	if got[0].SettingsCategory != "theme" {
+		t.Errorf("intent[0] category got %q", got[0].SettingsCategory)
+	}
+	if got[1].SettingsValue != "30" {
+		t.Errorf("intent[1] value got %q", got[1].SettingsValue)
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_ArrayOfThreeHeterogeneous(t *testing.T) {
+	f := &fakeChatModel{
+		response: `[{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark","mode":"preview"},{"action":"schedule_reminder","title":"开会","due_at":"2026-07-20T09:00:00+08:00","priority":"normal","mode":"preview"},{"action":"draft_email","purpose":"请假","mode":"preview"}]`,
+	}
+	a := NewIntentAgent(f)
+	got, err := a.RecognizeMulti(context.Background(), "切深色 + 提醒开会 + 请假邮件")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 intents, got %d", len(got))
+	}
+	if got[0].Action != intent.ActionApplySettings {
+		t.Errorf("intent[0] got %q", got[0].Action)
+	}
+	if got[1].Action != intent.ActionScheduleReminder {
+		t.Errorf("intent[1] got %q", got[1].Action)
+	}
+	if got[2].Action != intent.ActionDraftEmail {
+		t.Errorf("intent[2] got %q", got[2].Action)
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_LLMError(t *testing.T) {
+	f := &fakeChatModel{err: errors.New("network down")}
+	a := NewIntentAgent(f)
+	_, err := a.RecognizeMulti(context.Background(), "anything")
+	if err == nil {
+		t.Fatal("expected error when LLM call fails")
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_BadJSON(t *testing.T) {
+	f := &fakeChatModel{response: "not json"}
+	a := NewIntentAgent(f)
+	_, err := a.RecognizeMulti(context.Background(), "anything")
+	if err == nil {
+		t.Fatal("expected error when LLM returns invalid JSON")
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_UsesMultiPrompt(t *testing.T) {
+	// 验证 RecognizeMulti 用了多意图 system prompt（跟单意图的不同）
+	f := &fakeChatModel{response: `[{"action":"get_system_info"}]`}
+	a := NewIntentAgent(f)
+	_, _ = a.RecognizeMulti(context.Background(), "anything")
+
+	if len(f.lastMessages) < 2 {
+		t.Fatalf("expected at least 2 messages, got %d", len(f.lastMessages))
+	}
+	if f.lastMessages[0].Content == systemPrompt {
+		t.Error("RecognizeMulti should NOT use the single-intent systemPrompt")
+	}
+	if f.lastMessages[0].Content != multiIntentSystemPrompt {
+		t.Error("RecognizeMulti should use multiIntentSystemPrompt")
+	}
+}
+
+func TestIntentAgent_RecognizeMulti_EmptyArray(t *testing.T) {
+	f := &fakeChatModel{response: `[]`}
+	a := NewIntentAgent(f)
+	_, err := a.RecognizeMulti(context.Background(), "anything")
+	if err == nil {
+		t.Error("empty array should return error")
+	}
+}

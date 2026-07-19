@@ -16,7 +16,6 @@ import (
 	"github.com/cloudwego/eino/compose"
 
 	"github.com/sshnuke3/deepin-agent-teams/internal/agents"
-	"github.com/sshnuke3/deepin-agent-teams/internal/model"
 	"github.com/sshnuke3/deepin-agent-teams/internal/tools"
 	intentpkg "github.com/sshnuke3/deepin-agent-teams/pkg/intent"
 )
@@ -26,11 +25,14 @@ type Orchestrator struct {
 	intentAgent *agents.IntentAgent
 	planner     *agents.PlannerAgent
 	verifier    *agents.VerifierAgent
-	chatModel   model.ChatModel
+	chatModel   agents.ChatModel
 }
 
 // New 创建编排器
-func New(chatModel model.ChatModel) *Orchestrator {
+//
+// 接 agents.ChatModel interface（*openai.ChatModel / mockChatModel 都满足）。
+// 原 model.ChatModel（*openai.ChatModel）是这个 interface 的实现，调用方零改动。
+func New(chatModel agents.ChatModel) *Orchestrator {
 	return &Orchestrator{
 		intentAgent: agents.NewIntentAgent(chatModel),
 		planner:     agents.NewPlannerAgent(chatModel),
@@ -77,6 +79,136 @@ func (o *Orchestrator) Run(ctx context.Context, userInput string) (string, error
 
 	// ============ 格式化最终输出 ============
 	return formatOutput(pc)
+}
+
+// RunMulti 处理多意图输入（v4 M3 新增）
+//
+// 调用 IntentAgent.RecognizeMulti 拿到 []*intent.Intent；如果只有 1 个，降级走 Run。
+// 多意图时逐个调 runSingle（复用 Run 的同一套 chain），拼接各 chain 输出。
+//
+// 失败策略：单个 chain 失败不中断其他 chain，但会在该 chain 输出里加错误标记。
+func (o *Orchestrator) RunMulti(ctx context.Context, userInput string) (string, error) {
+	intents, err := o.intentAgent.RecognizeMulti(ctx, userInput)
+	if err != nil {
+		return "", fmt.Errorf("recognize multi: %w", err)
+	}
+
+	// 过滤掉 unknown（保留至少 1 个，避免返回空）
+	filtered := make([]*intentpkg.Intent, 0, len(intents))
+	for _, it := range intents {
+		if it.Action != intentpkg.ActionUnknown {
+			filtered = append(filtered, it)
+		}
+	}
+	if len(filtered) == 0 {
+		filtered = intents // 如果全是 unknown，保留作为提示用户
+	}
+
+	// 单意图走 Run（完整 chain 路径）
+	if len(filtered) == 1 {
+		return o.runSingle(ctx, userInput, filtered[0])
+	}
+
+	// 多意图：逐个走，拼接结果
+	results := make([]string, 0, len(filtered))
+	for i, it := range filtered {
+		out, err := o.runSingle(ctx, userInput, it)
+		if err != nil {
+			results = append(results, fmt.Sprintf("❌ 第 %d 个意图执行失败: %v", i+1, err))
+			continue
+		}
+		results = append(results, out)
+	}
+
+	return strings.Join(results, "\n\n---\n\n"), nil
+}
+
+// runSingle 在指定 Intent 下走完整 chain（被 Run 和 RunMulti 复用）
+//
+// 这个函数不做 Intent 识别，直接用传进来的 it （IntentAgent 识别后的结果）。
+// 为什么要拆出来：RunMulti 已经在外面调用了 RecognizeMulti，重复识别会浪费 LLM token。
+func (o *Orchestrator) runSingle(ctx context.Context, userInput string, it *intentpkg.Intent) (string, error) {
+	// 用 eino 表达“预设 Intent → 补齐 Plan → 调工具 → 校验”。
+	// 为避免重写三个 stage，这里改成手动调用顺序（等价于 chain.Invoke 的展开）。
+	pc := &PipelineContext{UserInput: userInput, Intent: it}
+
+	// Stage 1: Plan
+	if err := o.populatePlan(ctx, pc); err != nil {
+		return "", fmt.Errorf("stage plan: %w", err)
+	}
+	// Stage 2: Execute
+	pc, err := o.stageExecute(ctx, pc)
+	if err != nil {
+		return "", err
+	}
+	// Stage 3: Verify
+	pc, err = o.stageVerify(ctx, pc)
+	if err != nil {
+		return "", err
+	}
+	return formatOutput(pc)
+}
+
+// populatePlan 根据预识别的 Intent 调用 Planner，补齐 Plan 字段
+// （从 Run / RunMulti 复用）
+func (o *Orchestrator) populatePlan(ctx context.Context, pc *PipelineContext) error {
+	it := pc.Intent
+	switch it.Action {
+	case intentpkg.ActionDraftEmail:
+		ep, err := o.planner.PlanEmail(ctx, pc.UserInput, it)
+		if err != nil {
+			ep = &agents.EmailPlan{
+				Recipient: it.Recipient, Subject: it.Subject,
+				Purpose: it.Purpose, Tone: "formal", Mode: it.Mode,
+			}
+			if ep.Mode == "" {
+				ep.Mode = "preview"
+			}
+		}
+		pc.EmailPlan = ep
+	case intentpkg.ActionApplySettings:
+		sp, err := o.planner.PlanSettings(ctx, pc.UserInput, it)
+		if err != nil {
+			sp = &agents.SettingsPlan{
+				Changes: []tools.SettingChange{{
+					Category: it.SettingsCategory, NewValue: it.SettingsValue,
+				}},
+				Mode: it.Mode,
+			}
+			if sp.Mode == "" {
+				sp.Mode = "preview"
+			}
+		}
+		pc.SettingsPlan = sp
+	case intentpkg.ActionScheduleReminder:
+		rp, err := o.planner.PlanReminder(ctx, pc.UserInput, it)
+		if err != nil {
+			rp = &agents.ReminderPlan{
+				Title: it.Title, DueAt: it.DueAt,
+				Priority: it.Priority, Mode: it.Mode,
+			}
+			if rp.Priority == "" {
+				rp.Priority = "normal"
+			}
+			if rp.Mode == "" {
+				rp.Mode = "preview"
+			}
+		}
+		pc.ReminderPlan = rp
+	case intentpkg.ActionOrganizeFiles:
+		plan, err := o.planner.PlanOrganize(ctx, pc.UserInput, it)
+		if err != nil {
+			plan = &agents.OrganizePlan{Directory: it.Directory, Mode: it.Mode}
+			if plan.Directory == "" {
+				plan.Directory = "~/Downloads"
+			}
+			if plan.Mode == "" {
+				plan.Mode = "preview"
+			}
+		}
+		pc.Plan = plan
+	}
+	return nil
 }
 
 // stagePlan Stage 1: Intent + Plan

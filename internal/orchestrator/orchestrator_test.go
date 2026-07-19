@@ -1,13 +1,43 @@
 package orchestrator
 
 import (
+	"context"
 	"strings"
 	"testing"
+
+	"github.com/cloudwego/eino/components/model"
+	"github.com/cloudwego/eino/schema"
 
 	"github.com/sshnuke3/deepin-agent-teams/internal/agents"
 	"github.com/sshnuke3/deepin-agent-teams/internal/tools"
 	intentpkg "github.com/sshnuke3/deepin-agent-teams/pkg/intent"
 )
+
+// fakeChatModel 是 orchestrator 测试专用的 LLM mock
+// （与 internal/agents 包的同名 mock 重名但不冲突——跨包独立）
+type fakeChatModel struct {
+	// 预设的 LLM 返回内容
+	response string
+	// 调用计数（用于多意图场景验证）
+	calls int
+	// 记录每次调用的 prompt 内容（用于断言多意图 prompt 被使用）
+	lastPrompts []string
+}
+
+func (f *fakeChatModel) Generate(_ context.Context, in []*schema.Message, _ ...model.Option) (*schema.Message, error) {
+	f.calls++
+	if len(in) > 0 {
+		f.lastPrompts = append(f.lastPrompts, in[0].Content)
+	}
+	return &schema.Message{Role: schema.Assistant, Content: f.response}, nil
+}
+
+// 快速构造一个 Orchestrator + fakeChatModel 供测试使用
+func newTestOrchestrator(response string) (*Orchestrator, *fakeChatModel) {
+	f := &fakeChatModel{response: response}
+	o := New(f)
+	return o, f
+}
 
 func TestFormatOutput_NilIntent(t *testing.T) {
 	pc := &PipelineContext{}
@@ -388,5 +418,118 @@ func TestFormatSettingsOutput_NoRationale(t *testing.T) {
 	got := formatSettingsOutput(pc)
 	if strings.Contains(got, "判断:") {
 		t.Errorf("should not show rationale when empty, got %q", got)
+	}
+}
+
+// === RunMulti 测试 (v4 M3 多意图) ===
+
+func TestRunMulti_SingleIntent_DelegatesToRunPath(t *testing.T) {
+	// LLM 返回单意图（数组长度 1），应该走 Run 路径（不调 2 次 LLM）
+	f := &fakeChatModel{
+		response: `[{"action":"get_system_info"}]`,
+	}
+	o := New(f)
+	got, err := o.RunMulti(context.Background(), "看下系统信息")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "系统") {
+		t.Errorf("expected sysinfo output, got %q", got)
+	}
+}
+
+func TestRunMulti_TwoIntents_OutputHasSeparator(t *testing.T) {
+	// LLM 返回 2 个 apply_settings，输出应该用 --- 分隔
+	f := &fakeChatModel{
+		response: `[{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark","mode":"preview"},{"action":"apply_settings","settings_category":"volume","settings_value":"30","mode":"preview"}]`,
+	}
+	o := New(f)
+	got, err := o.RunMulti(context.Background(), "切深色 + 音量 30")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "---") {
+		t.Errorf("multi-intent output should have separator, got %q", got)
+	}
+	if !strings.Contains(got, "theme") {
+		t.Errorf("output should mention theme, got %q", got)
+	}
+	if !strings.Contains(got, "volume") {
+		t.Errorf("output should mention volume, got %q", got)
+	}
+}
+
+func TestRunMulti_HeterogeneousIntents_AllRun(t *testing.T) {
+	// settings + reminder + email 三意图，每个 chain 都跑
+	f := &fakeChatModel{
+		response: `[{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark","mode":"preview"},{"action":"schedule_reminder","title":"开会","due_at":"2026-07-20T09:00:00+08:00","priority":"normal","mode":"preview"},{"action":"draft_email","purpose":"请假","mode":"preview"}]`,
+	}
+	o := New(f)
+	got, err := o.RunMulti(context.Background(), "切深色 + 提醒开会 + 请假邮件")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "deepin-dark") {
+		t.Errorf("output should mention theme value, got %q", got)
+	}
+	if !strings.Contains(got, "开会") {
+		t.Errorf("output should mention reminder title, got %q", got)
+	}
+	if !strings.Contains(got, "请假") {
+		t.Errorf("output should mention email purpose, got %q", got)
+	}
+}
+
+func TestRunMulti_LLMError_BubblesUp(t *testing.T) {
+	// LLM 调用失败 → RunMulti 返回错误（不吞掉）
+	f := &fakeChatModel{} // response 空，ParseMulti 会报错
+	f.response = "not json"
+	o := New(f)
+	_, err := o.RunMulti(context.Background(), "anything")
+	if err == nil {
+		t.Fatal("expected error when LLM returns invalid JSON")
+	}
+}
+
+func TestRunMulti_AllUnknown_FallsBackToConfusedMessage(t *testing.T) {
+	// 所有意图都是 unknown（LLM 识别不出来）→ 各 chain 都走 unknown 路径
+	f := &fakeChatModel{
+		response: `[{"action":"unknown"},{"action":"unknown"}]`,
+	}
+	o := New(f)
+	got, err := o.RunMulti(context.Background(), "火星语")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if !strings.Contains(got, "没理解") {
+		t.Errorf("unknown intents should show confused message, got %q", got)
+	}
+}
+
+func TestRunMulti_FiltersOutUnknown_ButKeepsAtLeastOne(t *testing.T) {
+	// 2 个 intent 里 1 个 unknown 1 个有效 → 只跑有效的 1 个
+	f := &fakeChatModel{
+		response: `[{"action":"unknown"},{"action":"get_system_info"}]`,
+	}
+	o := New(f)
+	got, err := o.RunMulti(context.Background(), "火星语 + 看下系统信息")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	// 只跑 1 个 → 不应该有 ---
+	if strings.Contains(got, "---") {
+		t.Errorf("should not have separator when only 1 valid intent, got %q", got)
+	}
+	if !strings.Contains(got, "系统") {
+		t.Errorf("should show sysinfo, got %q", got)
+	}
+}
+
+func TestRunMulti_EmptyArray_ReturnsError(t *testing.T) {
+	f := &fakeChatModel{response: `[]`}
+	o := New(f)
+	_, err := o.RunMulti(context.Background(), "anything")
+	if err == nil {
+		t.Error("empty array should return error")
 	}
 }

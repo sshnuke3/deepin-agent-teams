@@ -222,3 +222,150 @@ func TestParse_AllSettingsCategories(t *testing.T) {
 		}
 	}
 }
+
+// === ParseMulti 测试 (v4 M3 多意图支持) ===
+
+func TestParseMulti_SingleObject(t *testing.T) {
+	got, err := ParseMulti(`{"action":"get_system_info"}`)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 intent, got %d", len(got))
+	}
+	if got[0].Action != ActionGetSystemInfo {
+		t.Errorf("got %q want %q", got[0].Action, ActionGetSystemInfo)
+	}
+}
+
+func TestParseMulti_ArrayOfTwo(t *testing.T) {
+	input := `[
+		{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark"},
+		{"action":"apply_settings","settings_category":"volume","settings_value":"30"}
+	]`
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 intents, got %d", len(got))
+	}
+	if got[0].SettingsCategory != "theme" {
+		t.Errorf("intent[0] category got %q want %q", got[0].SettingsCategory, "theme")
+	}
+	if got[1].SettingsValue != "30" {
+		t.Errorf("intent[1] value got %q want %q", got[1].SettingsValue, "30")
+	}
+}
+
+func TestParseMulti_ArrayOfThreeHeterogeneous(t *testing.T) {
+	input := `[
+		{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark"},
+		{"action":"schedule_reminder","title":"开会","due_at":"2026-07-20T09:00:00+08:00","priority":"normal","mode":"preview"},
+		{"action":"draft_email","purpose":"请假","mode":"preview"}
+	]`
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("expected 3 intents, got %d", len(got))
+	}
+	if got[0].Action != ActionApplySettings || got[1].Action != ActionScheduleReminder || got[2].Action != ActionDraftEmail {
+		t.Errorf("order mismatch: got [%q, %q, %q]", got[0].Action, got[1].Action, got[2].Action)
+	}
+}
+
+func TestParseMulti_WrappedIntentsField(t *testing.T) {
+	input := `{"intents":[{"action":"get_system_info"},{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark"}]}`
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 intents, got %d", len(got))
+	}
+	if got[0].Action != ActionGetSystemInfo {
+		t.Errorf("intent[0] action got %q", got[0].Action)
+	}
+	if got[1].Action != ActionApplySettings {
+		t.Errorf("intent[1] action got %q", got[1].Action)
+	}
+}
+
+func TestParseMulti_EmptyArray(t *testing.T) {
+	_, err := ParseMulti(`[]`)
+	if err == nil {
+		t.Error("empty array should return error")
+	}
+}
+
+func TestParseMulti_EmptyInput(t *testing.T) {
+	_, err := ParseMulti(``)
+	if err == nil {
+		t.Error("empty input should return error")
+	}
+}
+
+func TestParseMulti_InvalidJSON(t *testing.T) {
+	_, err := ParseMulti(`not json at all`)
+	if err == nil {
+		t.Error("invalid JSON should return error")
+	}
+}
+
+func TestParseMulti_ArrayItemInvalid(t *testing.T) {
+	// 数组里有一项是无效 JSON
+	input := `[{"action":"get_system_info"}, "not an object"]`
+	_, err := ParseMulti(input)
+	if err == nil {
+		t.Error("array with invalid item should return error")
+	}
+}
+
+func TestParseMulti_MarkdownFenced(t *testing.T) {
+	input := "```json\n[{\"action\":\"get_system_info\"}]\n```"
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("fenced array should parse, got %v", err)
+	}
+	if len(got) != 1 || got[0].Action != ActionGetSystemInfo {
+		t.Errorf("fenced array parse failed: %v", got)
+	}
+}
+
+func TestParseMulti_AppliesSingleIntentDefaults(t *testing.T) {
+	// ParseMulti 内部复用 Parse，所以安全默认值（organize 默认目录、reminder 默认 priority 等）应该生效
+	input := `[{"action":"schedule_reminder"}]` // 没 title，应被降级为 unknown
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 1 {
+		t.Fatalf("expected 1 intent, got %d", len(got))
+	}
+	if got[0].Action != ActionUnknown {
+		t.Errorf("reminder without title should map to unknown, got %q", got[0].Action)
+	}
+}
+
+func TestParseMulti_AppliesMultiSettingsDefaults(t *testing.T) {
+	// 第二项 settings value 为空，应该被降级为 unknown；但第一项保留
+	input := `[
+		{"action":"apply_settings","settings_category":"theme","settings_value":"deepin-dark"},
+		{"action":"apply_settings","settings_category":"theme"}
+	]`
+	got, err := ParseMulti(input)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(got) != 2 {
+		t.Fatalf("expected 2 intents, got %d", len(got))
+	}
+	if got[0].Action != ActionApplySettings {
+		t.Errorf("intent[0] should stay apply_settings, got %q", got[0].Action)
+	}
+	if got[1].Action != ActionUnknown {
+		t.Errorf("intent[1] without value should map to unknown, got %q", got[1].Action)
+	}
+}

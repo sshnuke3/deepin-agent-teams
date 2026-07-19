@@ -3,7 +3,12 @@
 // 这个包是导出的（pkg/），目的是让外部工具/插件也能复用这些定义
 package intent
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"errors"
+	"fmt"
+	"strings"
+)
 
 // Action 类型
 const (
@@ -161,4 +166,75 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// ParseMulti 解析多意图输入（v4 M3 新增）
+//
+// 支持三种输入形式：
+//  1. 单个 JSON 对象：{"action":...} → 返回 [Intent]
+//  2. JSON 数组：[{"action":...},{"action":...}] → 返回多 Intent
+//  3. LLM 偶发返回单个对象带 JSON array 字段的复合输入：{"intents":[...]} → 返回多 Intent
+//
+// 返回的 intents 中含 ActionUnknown 的会被丢弃（除非全部都是 unknown）。
+func ParseMulti(s string) ([]*Intent, error) {
+	s = stripMarkdown(s)
+	s = strings.TrimSpace(s)
+
+	if len(s) == 0 {
+		return nil, errors.New("empty input")
+	}
+
+	// 检测首字符：[ → JSON 数组
+	if s[0] == '[' {
+		var arr []map[string]any
+		if err := json.Unmarshal([]byte(s), &arr); err != nil {
+			return nil, fmt.Errorf("parse array: %w", err)
+		}
+		result := make([]*Intent, 0, len(arr))
+		for i, item := range arr {
+			// 把 map 重新序列化，然后走单意图 Parse 路径（安全校验逻辑不重复）
+			b, err := json.Marshal(item)
+			if err != nil {
+				return nil, fmt.Errorf("marshal item %d: %w", i, err)
+			}
+			it, err := Parse(string(b))
+			if err != nil {
+				return nil, fmt.Errorf("parse item %d: %w", i, err)
+			}
+			result = append(result, it)
+		}
+		if len(result) == 0 {
+			return nil, errors.New("empty array")
+		}
+		return result, nil
+	}
+
+	// 检测是否是 {"intents":[...]} 包装形式
+	if s[0] == '{' {
+		var probe struct {
+			Intents []map[string]any `json:"intents"`
+		}
+		if err := json.Unmarshal([]byte(s), &probe); err == nil && len(probe.Intents) > 0 {
+			result := make([]*Intent, 0, len(probe.Intents))
+			for i, item := range probe.Intents {
+				b, err := json.Marshal(item)
+				if err != nil {
+					return nil, fmt.Errorf("marshal intents[%d]: %w", i, err)
+				}
+				it, err := Parse(string(b))
+				if err != nil {
+					return nil, fmt.Errorf("parse intents[%d]: %w", i, err)
+				}
+				result = append(result, it)
+			}
+			return result, nil
+		}
+	}
+
+	// 默认：当作单意图处理
+	it, err := Parse(s)
+	if err != nil {
+		return nil, err
+	}
+	return []*Intent{it}, nil
 }
