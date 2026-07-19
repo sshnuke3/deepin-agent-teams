@@ -4,4 +4,4 @@ import {main} from '../models';
 
 export function GetStatus():Promise<main.Status>;
 
-export function Run(arg1:string):Promise<string>;
+export function Run(arg1:string,arg2:boolean):Promise<string>;

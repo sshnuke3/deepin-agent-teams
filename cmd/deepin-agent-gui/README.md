@@ -75,9 +75,16 @@ wails dev -tags webkit2_41
 - **没有悬浮球**:只做了聊天窗口(悬浮球是 v3 PyQt5 的特性,v4 暂不做)
 - **没有系统托盘**:同上
 - **不感知剪贴板/窗口**:v3 的 perception/ 模块 v4 没继承
-- **没法 --apply**:GUI 永远是 preview,真改系统要走 CLI 加 --apply
 
-这些是 v4 M3 的取舍 — 先把"GUI 能跑通"验证了,再增量加。
+## Apply 开关(M3 后期加)
+
+header 右上角有 iOS-style toggle:
+- 未勾(预览模式):只打印计划,不真改
+- 已勾(应用模式):真去调 D-Bus / 移文件 / 写 JSON / 存 .eml
+
+后端实现:勾选时拼上 `(apply mode)` 后缀给 Orchestrator,跟 CLI 的 `--apply` 行为一致。
+
+这些是 v4 M3 的取舍 — 先把"GUI 能跑通 + apply 开关"验证了,再增量加。
 
 ## 验证状态
 

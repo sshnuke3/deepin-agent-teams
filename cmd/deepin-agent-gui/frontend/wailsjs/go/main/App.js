@@ -6,6 +6,6 @@ export function GetStatus() {
   return window['go']['main']['App']['GetStatus']();
 }
 
-export function Run(arg1) {
-  return window['go']['main']['App']['Run'](arg1);
+export function Run(arg1, arg2) {
+  return window['go']['main']['App']['Run'](arg1, arg2);
 }

@@ -54,9 +54,24 @@ DEEPIN_DBUS=mock ./build/bin/deepin-agent-gui
 
 ### 当前限制
 
-- GUI 不支持 --apply（预览模式，真改走 CLI）
 - 没悬浮球/系统托盘（v3 PyQt5 特性，v4 M3 暂不做）
 - 没剪贴板/窗口感知（v3 perception/ 模块，v4 未继承）
+
+### Apply 模式开关
+
+v4 M3 GUI 后期加了 **Apply 开关**（ header 右上角 iOS-style toggle）：
+
+| 状态 | 按钮文字 | 行为 | 跟 CLI 的对应 |
+|------|---------|------|--------------|
+| 未勾 | `预览模式` | 只打印计划，不真改系统 | `./deepin-agent chat "..."` |
+| 已勾 | `应用模式` | 真去调 D-Bus / 移文件 / 写 JSON / 存 .eml | `./deepin-agent chat "..." --apply` |
+
+实现机制：勾选时后端把 `(apply mode)` 拼在用户输入后，跟 CLI 的 `--apply` 参数行为一致。Intent Agent 的 prompt 看到这个词，自动把 Intent.Mode 填 "apply"。
+
+**误操作提醒**：
+- apply 模式下用户消息气泡左边会有 ⚡ 标记
+- apply 模式下输入框边框变蓝色（提示状态）
+- apply 完成后 assistant 回复气泡末尾有 ✓ 已应用 标签
 
 ---
 
