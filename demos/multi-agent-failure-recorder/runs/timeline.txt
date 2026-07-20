@@ -1,0 +1,4 @@
+# multi-agent-failure-recorder 时间线
+# append only · 半年后回看用来判定多 Agent SOP 立项门槛
+# 格式: YYYY-MM-DD HH:MM:SS · mode · scene · sample-id · task 前 30 字
+

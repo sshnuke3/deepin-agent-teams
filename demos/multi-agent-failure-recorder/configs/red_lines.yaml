@@ -1,0 +1,82 @@
+# red_lines.yaml — demos/multi-agent-failure-recorder 红线
+#
+# 这是 ai-ops-sop §"红线系统" 模板在本 demo 的实例化。
+# 注意：本 demo 只采集样本，不实现多 agent 框架，所以红线很少——更多是"采集纪律"红线。
+
+# === 字段 1：项目元信息 ===
+project:
+  name: multi-agent-failure-recorder
+  type: demo (failure-sample-collector)
+  parent: deepin-agent-teams
+  start_date: 2026-07-21
+  expected_samples: 5-10  # 升级门槛 = 跨 3 mode 各 1+
+
+# === 字段 2：红线集合 ===
+red_lines:
+
+  # === RL-DEMO-1：测试样本禁止进 git ===
+  - id: RL-DEMO-1
+    level: critical
+    enabled: true
+    title: "测试样本禁止进 git"
+    trigger: "scripts/capture-failure.sh 测试运行"
+    action: "测试样本（scene 包含 dry-run / test）必须从 runs/ 删掉后再 commit"
+    on_violation: |
+      ⛔ 触发红线 RL-DEMO-1：测试样本进 git
+      建议处理：rm runs/<date>-failure-*.json（scene 字段含 dry-run/test）+ git reset
+    self_fix_limit: 1
+
+  # === RL-DEMO-2：半年无新样本 = 归档 ===
+  - id: RL-DEMO-2
+    level: standard
+    enabled: true
+    title: "半年无新样本 = 归档"
+    trigger: "cron 周期检查（6 个月）"
+    action: "半年无新样本 → 标记 archived: true"
+    on_violation: |
+      ⛔ 触发红线 RL-DEMO-2：超 6 月无新样本
+      建议处理：在 README 加 archived 标记 + 不再作为立项支撑
+
+  # === RL-DEMO-3：root_cause_hypothesis 必须填 ===
+  - id: RL-DEMO-3
+    level: standard
+    enabled: true
+    title: "root_cause_hypothesis 不可空"
+    trigger: "采集脚本交互式问询"
+    action: "如不填则拒收样本"
+    on_violation: |
+      ⛔ 触发红线 RL-DEMO-3：根因猜测空
+      建议处理：宁可填 'unknown' 也不空 — 半年后看 unknown 也比空白有意义
+
+  # === RL-DEMO-4：mode 越界 = 拒收 ===
+  - id: RL-DEMO-4
+    level: critical
+    enabled: true
+    title: "mode 必须在 F1-F5"
+    trigger: "采集脚本交互式问询"
+    action: "如 mode 不在 F1-F5 则拒收样本"
+    on_violation: |
+      ⛔ 触发红线 RL-DEMO-4：mode 越界
+      建议处理：5 大失败模式都不符合 = 这个失败不属于本 demo 采集范围
+
+# === 字段 3：加载策略 ===
+load_policy:
+  on_session_start:
+    - RL-DEMO-1  # 测试样本防污染
+    - RL-DEMO-4  # mode 校验
+  on_stage_enter:
+    capture: [RL-DEMO-1, RL-DEMO-3, RL-DEMO-4]
+    review: [RL-DEMO-2]
+
+# === 字段 4：跨文件引用 ===
+references:
+  spec_file: docs/spec.md
+  parent_methodology: ../../../methodology/ai-coding-pipeline-methodology.md
+  parent_sop: ../../../workspace-public/ai-ops-sop/README.md
+  rfc: ../../../drafts/multi-agent-sop/RFC.md
+
+---
+
+# 2026-07-21 创建 · 多 Agent 失败采集纪律红线
+# 主人定的两条规则: 加注释 ✓ / 完全剥离 ✓ (本 demo 是内部使用)
+# 红线设计原则: 采集纪律类 (不是实现类) — demo 只采集样本, 不做框架
