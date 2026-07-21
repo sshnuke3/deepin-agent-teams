@@ -1,6 +1,6 @@
 module github.com/sshnuke3/deepin-agent-teams
 
-go 1.22.2
+go 1.25.0
 
 require (
 	github.com/cloudwego/eino v0.9.12
@@ -36,6 +36,7 @@ require (
 	github.com/yargevad/filepathx v1.0.0 // indirect
 	golang.org/x/arch v0.11.0 // indirect
 	golang.org/x/exp v0.0.0-20230713183714-613f0c0eb8a1 // indirect
+	golang.org/x/sync v0.22.0 // indirect
 	golang.org/x/sys v0.29.0 // indirect
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 )
