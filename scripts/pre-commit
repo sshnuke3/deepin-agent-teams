@@ -15,7 +15,8 @@ GREEN='\033[0;32m'
 NC='\033[0m'
 
 # 1. 检查 .env 是否被 staged（即使 force add 也能拦住）
-if git diff --cached --name-only | grep -E '^\.env$|^\.env\.[^.]+$'; then
+#    允许 .env.example / .env.sample 等文档型文件（仅在结尾是合法扩展名时）
+if git diff --cached --name-only | grep -E '(^|/)\.env$|(^|/)\.env\.(local|prod|production|development|dev|test|staging)$'; then
   echo -e "${RED}❌ 拒绝 commit：检测到 .env 文件被 staged${NC}"
   echo "   解法：git reset HEAD .env && git commit"
   exit 1

@@ -5,6 +5,7 @@
 //	deepin-agent chat "帮我切到深色模式"
 //	deepin-agent chat "整理一下 Downloads" --apply   # 真移文件
 //	deepin-agent demo
+//	deepin-agent complex "帮我 ..."     # 走 RunComplex (advisor-orchestrator-worker 团队模式)
 package main
 
 import (
@@ -14,6 +15,7 @@ import (
 	"log"
 	"os"
 
+	"github.com/sshnuke3/deepin-agent-teams/internal/advisor"
 	"github.com/sshnuke3/deepin-agent-teams/internal/config"
 	"github.com/sshnuke3/deepin-agent-teams/internal/model"
 	"github.com/sshnuke3/deepin-agent-teams/internal/orchestrator"
@@ -26,6 +28,9 @@ func main() {
 		showVersion = flag.Bool("version", false, "show version")
 		runDemo     = flag.Bool("demo", false, "run built-in demo")
 		applyMode   = flag.Bool("apply", false, "file organize: really move files (default: preview)")
+		noAdvisor   = flag.Bool("no-advisor", false, "disable Advisor Agent (fall back to no-advisor Run mode; useful when mengyu.ltd is 503)")
+		useComplex  = flag.Bool("complex", false, "use RunComplex (v5 team mode: plan_review + escalation + taste_pass); default false (use Run)")
+		budget      = flag.Int("budget", 10, "RunComplex dispatches/consults total budget")
 	)
 	flag.Parse()
 
@@ -44,9 +49,30 @@ func main() {
 	if err != nil {
 		log.Fatalf("chat model init failed: %v", err)
 	}
-	log.Printf("✅ ChatModel: provider=%s model=%s", cfg.LLMProvider, cfg.Model)
+	log.Printf("✅ Orchestrator ChatModel: provider=%s model=%s", cfg.LLMProvider, cfg.Model)
 
 	orch := orchestrator.New(chatModel)
+
+	// v5 M5+: Advisor 默认接 mengyu.ltd 中转的 KAT-Coder-Exp-72B-1010
+	// --no-advisor 可强制跳过(降级到与老版一致的行为)
+	var advisorAgent *advisor.AdvisorAgent
+	if !*noAdvisor {
+		advCfg := model.AdvisorConfigFromEnv()
+		if advCfg.Enabled {
+			advCM, advErr := model.NewAdvisorChatModel(ctx, advCfg)
+			if advErr != nil {
+				log.Printf("⚠️  Advisor init failed (降级到 no-advisor): %v", advErr)
+			} else {
+				advisorAgent = advisor.NewAdvisorAgent(advCM)
+				log.Printf("✅ Advisor ChatModel: provider=%s model=%s (base=%s)",
+					advCfg.Provider, advCfg.Model, advCfg.BaseURL)
+			}
+		} else {
+			log.Printf("ℹ️  Advisor disabled (no ADVISOR_API_KEY; 需 --no-advisor 显式跳过)")
+		}
+	} else {
+		log.Printf("⏭  --no-advisor: 跳过 Advisor, 走纯 Run 路径")
+	}
 
 	if *runDemo {
 		runBuiltInDemo(ctx, orch)
@@ -55,8 +81,9 @@ func main() {
 
 	args := flag.Args()
 	if len(args) == 0 {
-		fmt.Println("用法: deepin-agent [--demo] chat \"你的指令\"")
+		fmt.Println("用法: deepin-agent [--demo] [--complex] [--no-advisor] chat \"你的指令\"")
 		fmt.Println("     deepin-agent chat \"整理 Downloads\" --apply   # 真移文件")
+		fmt.Println("     deepin-agent --complex chat \"整理 Downloads\"  # 团队模式 (advisor 介入)")
 		os.Exit(1)
 	}
 
@@ -70,7 +97,21 @@ func main() {
 		userInput = userInput + " (apply mode)"
 	}
 
-	result, err := orch.Run(ctx, userInput)
+	// v5+: --complex 走 RunComplex(团队模式);默认走 Run(原有路径,不破)
+	var result string
+	if *useComplex {
+		log.Printf("🔀 --complex: 走 RunComplex (budget=%d, advisor=%v)", *budget, advisorAgent != nil)
+		result, err = orch.RunComplex(ctx, userInput, orchestrator.RunComplexOpts{
+			AdvisorAgent:   advisorAgent,
+			Budget:         *budget,
+			SuccessCriteria: []string{
+				"完成用户请求",
+				"未触发副作用",
+			},
+		})
+	} else {
+		result, err = orch.Run(ctx, userInput)
+	}
 	if err != nil {
 		log.Fatalf("orchestrator run failed: %v", err)
 	}

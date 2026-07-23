@@ -44,9 +44,13 @@ v4 M2/M3 把"三段 Lambda Chain"打通（Intent → Plan → Execute → Verify
 | 角色 | 实现 | 文件 | 默认模型 |
 |------|------|------|----------|
 | **Orchestrator** | `internal/orchestrator/orchestrator.go` + `run_complex.go` | RunComplex 入口 | 同 v4 现有 |
-| **Advisor** | `internal/advisor/advisor_agent.go` | 贵/独立 ChatModel | 可接 Claude Fable 5 / GPT-5.6 |
+| **Advisor** | `internal/advisor/advisor_agent.go` | 独立 ChatModel (`internal/model/advisor.go` factory) | **KAT-Coder-Exp-72B-1010** (mengyu.ltd 中转) · 可换 |
 | **Workers** | `internal/workerpool/pool.go` | errgroup 并发 | 调用方决定 |
 | **Ledger** | `internal/ledger/ledger.go` | JSONL 账本 | N/A |
+
+> **2026-07-23 接入 KAT-Coder**：v5 M5 落地后，`RunComplex` 默认不接 advisor (`opts.AdvisorAgent == nil` 跳过所有 consult)。
+> v5+ 起 `cmd/deepin-agent/main.go` 启动时自动加载 `internal/model/advisor.go` factory，默认构造 AdvisorAgent (走 mengyu 中转 KAT-Coder-72B)。
+> `--no-advisor` flag 可强制跳过 (mengyu.ltd 503 时降级)。`--complex` flag 才会走 RunComplex，否则走原 Run 路径。
 
 ---
 
